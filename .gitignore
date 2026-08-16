@@ -1,0 +1,11 @@
+.cache
+.vscode
+.idea
+.DS_Store
+
+compile_commands.json
+
+bin/
+output/
+
+scaling.ipynb
