@@ -7,6 +7,17 @@
 
 #include <Igor/Logging.hpp>
 
+#if defined(__clang__) || defined(__GNUC__)
+#define NS_FVM_ALWAYS_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define NS_FVM_ALWAYS_INLINE [[msvc::forceinline]]
+#else
+#define NS_FVM_ALWAYS_INLINE
+#warning "NS_FVM_ALWAYS_INLINE is not defined for this compiler; foreach kernels may not vectorize."
+#endif
+
+#define FOREACH_FUNC [=](Index i, Index j) NS_FVM_ALWAYS_INLINE
+
 #ifndef NS_FVM_INDEX_TYPE
 using Index = int32_t;
 #else
@@ -16,6 +27,7 @@ using Index = NS_FVM_INDEX_TYPE;
 #endif  // FS_INDEX_TYPE
 
 enum class Layout { C, F };
+enum class Dimension { X, Y };
 
 template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
@@ -49,7 +61,7 @@ class Grid {
 
   Index m_nghost;
 
-  constexpr auto alloc(Index nx, Index ny, Index nghost) noexcept -> Scalar {
+  constexpr auto alloc(Index nx, Index ny, Index nghost) const noexcept -> Scalar {
     IGOR_ASSERT(nx > 0 && ny > 0 && nghost >= 0,
                 "Invalid dimensions: nx={}, ny={}, nghost={}",
                 nx,
@@ -91,29 +103,75 @@ class Grid {
   [[nodiscard]] constexpr auto dv() const noexcept -> Float { return m_dv; }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_nghost; }
 
-  [[nodiscard]] constexpr auto alloc_scalar() noexcept -> Scalar {
+  [[nodiscard]] constexpr auto alloc_scalar() const noexcept -> Scalar {
     return alloc(m_nx, m_ny, m_nghost);
   }
-  constexpr void free_scalar(Scalar& s) noexcept { std::free(s.data()); /* NOLINT */ }
-
-  [[nodiscard]] constexpr auto alloc_vector() noexcept -> Vector {
+  [[nodiscard]] constexpr auto alloc_vector() const noexcept -> Vector {
     auto x = alloc_scalar();
     auto y = alloc_scalar();
     return {x, y};
   }
-  constexpr void free_vector(Vector& v) noexcept {
-    free_scalar(v.x);
-    free_scalar(v.y);
-  }
-
-  [[nodiscard]] constexpr auto alloc_face_vector() noexcept -> FaceVector {
+  [[nodiscard]] constexpr auto alloc_face_vector() const noexcept -> FaceVector {
     auto x = alloc(m_nx + 1, m_ny, m_nghost);
     auto y = alloc(m_nx, m_ny + 1, m_nghost);
     return {x, y};
   }
-  constexpr void free_face_vector(FaceVector& v) noexcept {
-    free_scalar(v.x);
-    free_scalar(v.y);
+
+  constexpr void free(Scalar& s) const noexcept {
+    std::free(s.data());  // NOLINT
+  }
+  constexpr void free(Vector& v) const noexcept {
+    free(v.x);
+    free(v.y);
+  }
+  constexpr void free(FaceVector& v) const noexcept {
+    free(v.x);
+    free(v.y);
+  }
+
+  // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
+  template <typename FUNC>
+  NS_FVM_ALWAYS_INLINE constexpr void
+  foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
+    if constexpr (LAYOUT == Layout::F) {
+      // Column-major: i is contiguous.
+      for (Index j = jlo; j < jhi; ++j) {
+        for (Index i = ilo; i < ihi; ++i) {
+          func(i, j);
+        }
+      }
+    } else {
+      // Row-major: j is contiguous.
+      for (Index i = ilo; i < ihi; ++i) {
+        for (Index j = jlo; j < jhi; ++j) {
+          func(i, j);
+        }
+      }
+    }
+  }
+
+  template <Dimension DIM, typename FUNC>
+  NS_FVM_ALWAYS_INLINE constexpr void foreach_face_i(const FUNC& func) const noexcept {
+    const Index ihi = (DIM == Dimension::X) ? nx() + 1 : nx();
+    const Index jhi = (DIM == Dimension::X) ? ny() : ny() + 1;
+    foreach_range(0, ihi, 0, jhi, func);
+  }
+
+  template <Dimension DIM, typename FUNC>
+  NS_FVM_ALWAYS_INLINE constexpr void foreach_face_a(const FUNC& func) const noexcept {
+    const Index ihi = (DIM == Dimension::X) ? nx() + nghost() + 1 : nx() + nghost();
+    const Index jhi = (DIM == Dimension::X) ? ny() + nghost() : ny() + nghost() + 1;
+    foreach_range(-nghost(), ihi, -nghost(), jhi, func);
+  }
+
+  template <typename FUNC>
+  NS_FVM_ALWAYS_INLINE constexpr void foreach_i(const FUNC& func) const noexcept {
+    foreach_range(0, nx(), 0, ny(), func);
+  }
+
+  template <typename FUNC>
+  NS_FVM_ALWAYS_INLINE constexpr void foreach_a(const FUNC& func) const noexcept {
+    foreach_range(-nghost(), nx() + nghost(), -nghost(), ny() + nghost(), func);
   }
 };
 
@@ -146,7 +204,7 @@ class Scalar {
   constexpr auto operator=(Scalar&& other) noexcept -> Scalar&      = default;
   constexpr ~Scalar() noexcept                                      = default;
 
-  constexpr auto operator()(Index i, Index j) noexcept -> Float& {
+  constexpr auto operator()(Index i, Index j) const noexcept -> Float& {
     IGOR_ASSERT(i >= -m_nghost && i < m_nx + m_nghost && j >= -m_nghost && j < m_ny + m_nghost,
                 "Index ({}, {}) is out of bounds for Scalar of size {}:{}x{}:{}",
                 i,
@@ -158,20 +216,7 @@ class Scalar {
     return *(data() + get_idx(i, j));
   }
 
-  constexpr auto operator()(Index i, Index j) const noexcept -> const Float& {
-    IGOR_ASSERT(i >= -m_nghost && i < m_nx + m_nghost && j >= -m_nghost && j < m_ny + m_nghost,
-                "Index ({}, {}) is out of bounds for Scalar of size {}:{}x{}:{}",
-                i,
-                j,
-                -m_nghost,
-                m_nx + m_nghost,
-                -m_nghost,
-                m_ny + m_nghost);
-    return *(data() + get_idx(i, j));
-  }
-
-  [[nodiscard]] constexpr auto data() noexcept -> Float* { return m_data; }
-  [[nodiscard]] constexpr auto data() const noexcept -> const Float* { return m_data; }
+  [[nodiscard]] constexpr auto data() const noexcept -> Float* { return m_data; }
 
   [[nodiscard]] constexpr auto size() const noexcept -> Index {
     return (m_nx + 2 * m_nghost) * (m_ny + 2 * m_nghost);
@@ -226,15 +271,10 @@ class FaceVector {
   constexpr auto operator=(FaceVector&& other) noexcept -> FaceVector&      = default;
   constexpr ~FaceVector() noexcept                                          = default;
 
-  constexpr auto left(Index i, Index j) noexcept -> Float& { return x(i, j); }
-  constexpr auto left(Index i, Index j) const noexcept -> const Float& { return x(i, j); }
-  constexpr auto right(Index i, Index j) noexcept -> Float& { return x(i + 1, j); }
-  constexpr auto right(Index i, Index j) const noexcept -> const Float& { return x(i + 1, j); }
-
-  constexpr auto bottom(Index i, Index j) noexcept -> Float& { return y(i, j); }
-  constexpr auto bottom(Index i, Index j) const noexcept -> const Float& { return y(i, j); }
-  constexpr auto top(Index i, Index j) noexcept -> Float& { return y(i, j + 1); }
-  constexpr auto top(Index i, Index j) const noexcept -> const Float& { return y(i, j + 1); }
+  constexpr auto left(Index i, Index j) const noexcept -> Float& { return x(i, j); }
+  constexpr auto right(Index i, Index j) const noexcept -> Float& { return x(i + 1, j); }
+  constexpr auto bottom(Index i, Index j) const noexcept -> Float& { return y(i, j); }
+  constexpr auto top(Index i, Index j) const noexcept -> Float& { return y(i, j + 1); }
 
   friend class Grid<Float, LAYOUT>;
 };

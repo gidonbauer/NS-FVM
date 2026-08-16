@@ -9,7 +9,7 @@
 
 #include "Grid.hpp"
 
-template <typename Float>
+template <typename Float, Layout LAYOUT>
 class VTKWriter {
   std::string m_output_dir;
 
@@ -24,10 +24,10 @@ class VTKWriter {
   Index m_ny;
 
   std::vector<std::string> m_scalar_names;
-  std::vector<Scalar<Float>> m_scalar_values{};
+  std::vector<Scalar<Float, LAYOUT>> m_scalar_values{};
 
   std::vector<std::string> m_vector_names;
-  std::vector<Vector<Float>> m_vector_values{};
+  std::vector<Vector<Float, LAYOUT>> m_vector_values{};
 
   template <typename T>
   requires(std::is_fundamental_v<T> && (sizeof(T) == 4 || sizeof(T) == 8))
@@ -69,7 +69,7 @@ class VTKWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  void write_scalar(std::ofstream& out, const Scalar<Float> s, const std::string& name) {
+  void write_scalar(std::ofstream& out, const Scalar<Float, LAYOUT> s, const std::string& name) {
     out << "SCALARS " << name << " double 1\n";
     out << "LOOKUP_TABLE default\n";
     for (Index j = 0; j < s.ny(); ++j) {
@@ -81,7 +81,7 @@ class VTKWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  void write_vector(std::ofstream& out, const Vector<Float> v, const std::string& name) {
+  void write_vector(std::ofstream& out, const Vector<Float, LAYOUT> v, const std::string& name) {
     out << "VECTORS " << name << " double\n";
     for (Index j = 0; j < v.x.ny(); ++j) {
       for (Index i = 0; i < v.x.nx(); ++i) {
@@ -95,7 +95,7 @@ class VTKWriter {
   }
 
  public:
-  constexpr VTKWriter(std::string output_dir, const Grid<Float>& grid)
+  constexpr VTKWriter(std::string output_dir, const Grid<Float, LAYOUT>& grid)
       : m_output_dir(std::move(output_dir)),
         m_x_min(grid.x_min()),
         m_x_max(grid.x_max()),
@@ -112,12 +112,12 @@ class VTKWriter {
   constexpr auto operator=(VTKWriter&& other) noexcept -> VTKWriter&      = delete;
   constexpr ~VTKWriter() noexcept                                         = default;
 
-  constexpr void add_field(std::string name, const Scalar<Float> s) {
+  constexpr void add_field(std::string name, const Scalar<Float, LAYOUT> s) {
     m_scalar_names.emplace_back(std::move(name));
     m_scalar_values.push_back(s);
   }
 
-  constexpr void add_field(std::string name, const Vector<Float> v) {
+  constexpr void add_field(std::string name, const Vector<Float, LAYOUT> v) {
     m_vector_names.emplace_back(std::move(name));
     m_vector_values.push_back(v);
   }

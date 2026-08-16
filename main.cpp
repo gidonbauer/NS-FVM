@@ -32,10 +32,10 @@ auto main() -> int {
   Grid grid(x_min, x_max, NX, y_min, y_max, NY);
 
   auto p = grid.alloc_scalar();
-  Igor::Defer free_p([&] { grid.free_scalar(p); });
+  Igor::Defer free_p([&] { grid.free(p); });
 
   auto u = grid.alloc_vector();
-  Igor::Defer free_u([&] { grid.free_vector(u); });
+  Igor::Defer free_u([&] { grid.free(u); });
 
   const Float dx = (x_max - x_min) / NX;
   const Float dy = (y_max - y_min) / NY;
@@ -49,7 +49,7 @@ auto main() -> int {
     }
   }
 
-  VTKWriter<Float> writer("output/", grid);
+  VTKWriter writer("output/", grid);
   writer.add_field("p", p);
   writer.add_field("u", u);
   if (!writer.write(0.0)) { return 1; }

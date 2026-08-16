@@ -79,57 +79,51 @@ constexpr auto right_biased_reconstruction(Float um1, Float u0, Float up1, Float
   return (a0 * q0 + a1 * q1 + a2 * q2) / asum;
 }
 
-constexpr void
-calc_reconstruction(const Scalar<Float> u, FaceVector<Float> uL, FaceVector<Float> uR) {
-  for (Index i = 0; i < uL.x.nx(); ++i) {
-    for (Index j = 0; j < uL.x.ny(); ++j) {
-      uL.x(i, j) =
-          left_biased_reconstruction(u(i - 3, j), u(i - 2, j), u(i - 1, j), u(i, j), u(i + 1, j));
-      uR.x(i, j) =
-          right_biased_reconstruction(u(i - 2, j), u(i - 1, j), u(i, j), u(i + 1, j), u(i + 2, j));
-    }
-  }
+template <typename Float, Layout LAYOUT>
+constexpr void calc_reconstruction(const Grid<Float, LAYOUT>& grid,
+                                   const Scalar<Float, LAYOUT> u,
+                                   FaceVector<Float, LAYOUT> uL,
+                                   FaceVector<Float, LAYOUT> uR) {
+  grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
+    uL.x(i, j) =
+        left_biased_reconstruction(u(i - 3, j), u(i - 2, j), u(i - 1, j), u(i, j), u(i + 1, j));
+    uR.x(i, j) =
+        right_biased_reconstruction(u(i - 2, j), u(i - 1, j), u(i, j), u(i + 1, j), u(i + 2, j));
+  });
 
-  for (Index i = 0; i < uL.y.nx(); ++i) {
-    for (Index j = 0; j < uL.y.ny(); ++j) {
-      uL.y(i, j) =
-          left_biased_reconstruction(u(i, j - 3), u(i, j - 2), u(i, j - 1), u(i, j), u(i, j + 1));
-      uR.y(i, j) =
-          right_biased_reconstruction(u(i, j - 2), u(i, j - 1), u(i, j), u(i, j + 1), u(i, j + 2));
-    }
-  }
+  grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
+    uL.y(i, j) =
+        left_biased_reconstruction(u(i, j - 3), u(i, j - 2), u(i, j - 1), u(i, j), u(i, j + 1));
+    uR.y(i, j) =
+        right_biased_reconstruction(u(i, j - 2), u(i, j - 1), u(i, j), u(i, j + 1), u(i, j + 2));
+  });
 }
 
-constexpr void
-calc_flux(const FaceVector<Float> uL, const FaceVector<Float> uR, FaceVector<Float> F) {
-  for (Index i = 0; i < F.x.nx(); ++i) {
-    for (Index j = 0; j < F.x.ny(); ++j) {
-      F.x(i, j) = a * (a >= 0.0 ? uL.x(i, j) : uR.x(i, j));
-    }
-  }
-
-  for (Index i = 0; i < F.y.nx(); ++i) {
-    for (Index j = 0; j < F.y.ny(); ++j) {
-      F.y(i, j) = a * (a >= 0.0 ? uL.y(i, j) : uR.y(i, j));
-    }
-  }
+template <typename Float, Layout LAYOUT>
+constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
+                         const FaceVector<Float, LAYOUT> uL,
+                         const FaceVector<Float, LAYOUT> uR,
+                         FaceVector<Float, LAYOUT> F) {
+  grid.template foreach_face_i<Dimension::X>(
+      FOREACH_FUNC { F.x(i, j) = a * (a >= 0.0 ? uL.x(i, j) : uR.x(i, j)); });
+  grid.template foreach_face_i<Dimension::Y>(
+      FOREACH_FUNC { F.y(i, j) = a * (a >= 0.0 ? uL.y(i, j) : uR.y(i, j)); });
 }
 
-constexpr void update_u(Float dx,
-                        Float dy,
+template <typename Float, Layout LAYOUT>
+constexpr void update_u(const Grid<Float, LAYOUT>& grid,
                         Float dt,
-                        const FaceVector<Float> F,
-                        const Scalar<Float> u_old,
-                        Scalar<Float> u) {
-  for (Index i = 0; i < u.nx(); ++i) {
-    for (Index j = 0; j < u.ny(); ++j) {
-      u(i, j) = u_old(i, j) -
-                dt * ((F.right(i, j) - F.left(i, j)) / dx + (F.top(i, j) - F.bottom(i, j)) / dy);
-    }
-  }
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> u_old,
+                        Scalar<Float, LAYOUT> u) {
+  grid.foreach_i(FOREACH_FUNC {
+    u(i, j) = u_old(i, j) - dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
+                                  (F.top(i, j) - F.bottom(i, j)) / grid.dy());
+  });
 }
 
-constexpr void boundary_conditions(Scalar<Float> u) {
+template <typename Float, Layout LAYOUT>
+constexpr void boundary_conditions(Scalar<Float, LAYOUT> u) {
   // Homogeneous Neumann
   for (Index i = 0; i < u.nx(); ++i) {
     for (Index j = -u.nghost(); j < 0; ++j) {
@@ -154,7 +148,7 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   const auto output_dir = output_base_dir + "/" + std::to_string(N);
   if (!init_output_directory(output_dir)) { return false; }
 
-  Grid grid(x_min, x_max, N, y_min, y_max, N, 3);
+  Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 3);
 
   auto u_old = grid.alloc_scalar();
   Igor::Defer free_u_old([&] { grid.free(u_old); });
@@ -174,13 +168,11 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   Float dt = 0.0;
   Float t  = 0.0;
 
-  for (Index i = -grid.nghost(); i < grid.nx() + grid.nghost(); ++i) {
-    for (Index j = -grid.nghost(); j < grid.ny() + grid.nghost(); ++j) {
-      const Float x                  = grid.x_min() + (i + 0.5) * grid.dx();
-      [[maybe_unused]] const Float y = grid.y_min() + (j + 0.5) * grid.dy();
-      u(i, j)                        = u_analytical(x, y, t);
-    }
-  }
+  grid.foreach_i(FOREACH_FUNC {
+    const Float x = grid.x_min() + (i + 0.5) * grid.dx();
+    const Float y = grid.y_min() + (j + 0.5) * grid.dy();
+    u(i, j)       = u_analytical(x, y, t);
+  });
   boundary_conditions(u);
 
   VTKWriter writer(output_dir, grid);
@@ -195,15 +187,11 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
 
 #if 1
     for (Index sub_iter = 0; sub_iter < NUM_SUB_ITER; ++sub_iter) {
-      for (Index i = -grid.nghost(); i < grid.nx() + grid.nghost(); ++i) {
-        for (Index j = -grid.nghost(); j < grid.ny() + grid.nghost(); ++j) {
-          u(i, j) = 0.5 * (u(i, j) + u_old(i, j));
-        }
-      }
+      grid.foreach_a(FOREACH_FUNC { u(i, j) = 0.5 * (u(i, j) + u_old(i, j)); });
 
-      calc_reconstruction(u, uL, uR);
-      calc_flux(uL, uR, F);
-      update_u(grid.dx(), grid.dy(), dt, F, u_old, u);
+      calc_reconstruction(grid, u, uL, uR);
+      calc_flux(grid, uL, uR, F);
+      update_u(grid, dt, F, u_old, u);
       boundary_conditions(u);
     }
 #else
@@ -223,19 +211,17 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   }
 
   Float L1_error = 0.0;
-  for (Index i = 0; i < grid.nx(); ++i) {
-    for (Index j = 0; j < grid.ny(); ++j) {
-      const Float x0 = grid.x_min() + i * grid.dx();
-      const Float x1 = x0 + grid.dx();
-      const Float y0 = grid.y_min() + j * grid.dy();
-      const Float y1 = y0 + grid.dy();
+  grid.foreach_i([=, &L1_error](Index i, Index j) NS_FVM_ALWAYS_INLINE {
+    const Float x0 = grid.x_min() + i * grid.dx();
+    const Float x1 = x0 + grid.dx();
+    const Float y0 = grid.y_min() + j * grid.dy();
+    const Float y1 = y0 + grid.dy();
 
-      const Float u_exp =
-          quadrature([=](Float x, Float y) { return u_analytical(x, y, t); }, x0, x1, y0, y1) /
-          grid.dv();
-      L1_error += grid.dv() * std::abs(u(i, j) - u_exp);
-    }
-  }
+    const Float u_exp =
+        quadrature([&](Float x, Float y) { return u_analytical(x, y, t); }, x0, x1, y0, y1) /
+        grid.dv();
+    L1_error += grid.dv() * std::abs(u(i, j) - u_exp);
+  });
   Igor::Info("{} => {}", N, L1_error);
 
   return true;
