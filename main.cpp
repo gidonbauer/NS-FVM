@@ -1,3 +1,4 @@
+#include <cmath>
 #include <numbers>
 
 #include <Igor/Defer.hpp>

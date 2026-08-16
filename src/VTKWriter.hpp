@@ -3,6 +3,7 @@
 
 #include <array>
 #include <bit>
+#include <cstring>
 #include <fstream>
 #include <type_traits>
 #include <vector>

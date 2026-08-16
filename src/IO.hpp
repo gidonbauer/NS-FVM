@@ -1,6 +1,7 @@
 #ifndef NS_FVM_IO_HPP_
 #define NS_FVM_IO_HPP_
 
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 

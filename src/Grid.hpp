@@ -26,6 +26,9 @@ static_assert(std::is_integral_v<NS_FVM_INDEX_TYPE> && std::is_signed_v<NS_FVM_I
 using Index = NS_FVM_INDEX_TYPE;
 #endif  // FS_INDEX_TYPE
 
+// TODO: Consider blocked layout. Each block should have its own ghost layer around it. This
+//       requires a halo exchange after each update but opens up the path to efficient
+//       parallelization.
 enum class Layout { C, F };
 enum class Dimension { X, Y };
 
