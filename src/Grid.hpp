@@ -8,15 +8,13 @@
 #include <Igor/Logging.hpp>
 
 #if defined(__clang__) || defined(__GNUC__)
-#define NS_FVM_ALWAYS_INLINE __attribute__((always_inline))
-#elif defined(_MSC_VER)
-#define NS_FVM_ALWAYS_INLINE [[msvc::forceinline]]
+#define NS_FVM_FOREACH_DEF __attribute__((flatten)) __attribute__((always_inline))
 #else
-#define NS_FVM_ALWAYS_INLINE
-#warning "NS_FVM_ALWAYS_INLINE is not defined for this compiler; foreach kernels may not vectorize."
+#define NS_FVM_FOREACH_DEF
+#warning "NS_FVM_FOREACH_DEF is not defined for this compiler; foreach kernels may not vectorize."
 #endif
 
-#define FOREACH_FUNC [=](Index i, Index j) NS_FVM_ALWAYS_INLINE
+#define FOREACH_FUNC [=](Index i, Index j)
 
 #ifndef NS_FVM_INDEX_TYPE
 using Index = int32_t;
@@ -134,7 +132,7 @@ class Grid {
 
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
   template <typename FUNC>
-  NS_FVM_ALWAYS_INLINE constexpr void
+  NS_FVM_FOREACH_DEF constexpr void
   foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
     if constexpr (LAYOUT == Layout::F) {
       // Column-major: i is contiguous.
@@ -154,26 +152,26 @@ class Grid {
   }
 
   template <Dimension DIM, typename FUNC>
-  NS_FVM_ALWAYS_INLINE constexpr void foreach_face_i(const FUNC& func) const noexcept {
+  NS_FVM_FOREACH_DEF constexpr void foreach_face_i(const FUNC& func) const noexcept {
     const Index ihi = (DIM == Dimension::X) ? nx() + 1 : nx();
     const Index jhi = (DIM == Dimension::X) ? ny() : ny() + 1;
     foreach_range(0, ihi, 0, jhi, func);
   }
 
   template <Dimension DIM, typename FUNC>
-  NS_FVM_ALWAYS_INLINE constexpr void foreach_face_a(const FUNC& func) const noexcept {
+  NS_FVM_FOREACH_DEF constexpr void foreach_face_a(const FUNC& func) const noexcept {
     const Index ihi = (DIM == Dimension::X) ? nx() + nghost() + 1 : nx() + nghost();
     const Index jhi = (DIM == Dimension::X) ? ny() + nghost() : ny() + nghost() + 1;
     foreach_range(-nghost(), ihi, -nghost(), jhi, func);
   }
 
   template <typename FUNC>
-  NS_FVM_ALWAYS_INLINE constexpr void foreach_i(const FUNC& func) const noexcept {
+  NS_FVM_FOREACH_DEF constexpr void foreach_i(const FUNC& func) const noexcept {
     foreach_range(0, nx(), 0, ny(), func);
   }
 
   template <typename FUNC>
-  NS_FVM_ALWAYS_INLINE constexpr void foreach_a(const FUNC& func) const noexcept {
+  NS_FVM_FOREACH_DEF constexpr void foreach_a(const FUNC& func) const noexcept {
     foreach_range(-nghost(), nx() + nghost(), -nghost(), ny() + nghost(), func);
   }
 };

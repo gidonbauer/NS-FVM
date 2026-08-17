@@ -211,7 +211,7 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   }
 
   Float L1_error = 0.0;
-  grid.foreach_i([=, &L1_error](Index i, Index j) NS_FVM_ALWAYS_INLINE {
+  grid.foreach_i([=, &L1_error](Index i, Index j) {
     const Float x0 = grid.x_min() + i * grid.dx();
     const Float x1 = x0 + grid.dx();
     const Float y0 = grid.y_min() + j * grid.dy();
