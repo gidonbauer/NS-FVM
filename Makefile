@@ -17,15 +17,22 @@ else
 endif
 
 CXX_INC := -I./src
+CXX_LIB :=
 
 IGOR_DIR ?= ${HOME}/opt/Igor
 IGOR_INC = -I${IGOR_DIR}
 CXX_INC += ${IGOR_INC}
 
+POISFFT_DIR ?= ${HOME}/opt/PoisFFT
+POISFFT_INC = -I${POISFFT_DIR}/src
+POISFFT_LIB = -L${POISFFT_DIR}/lib/gcc/ -Wl,-rpath,${POISFFT_DIR}/lib/gcc/ -lpoisfft
+CXX_INC += ${POISFFT_INC}
+CXX_LIB += ${POISFFT_LIB}
+
 all: ${TARGETS}
 
 bin/%: %.cpp ${HEADERS} | bin output
-	${CXX} ${CXX_FLAGS} ${CXX_INC} -o $@ $<
+	${CXX} ${CXX_FLAGS} ${CXX_INC} -o $@ $< ${CXX_LIB}
 
 bin:
 	mkdir -p $@

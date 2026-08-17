@@ -104,6 +104,16 @@ class Grid {
   [[nodiscard]] constexpr auto dv() const noexcept -> Float { return m_dv; }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_nghost; }
 
+  // TODO: Maybe pass x and y as function argument to FOREACH_FUNC
+  [[nodiscard]] constexpr auto x(Index i) const noexcept -> Float { return m_x_min + i * m_dx; }
+  [[nodiscard]] constexpr auto y(Index j) const noexcept -> Float { return m_y_min + j * m_dy; }
+  [[nodiscard]] constexpr auto xm(Index i) const noexcept -> Float {
+    return m_x_min + (i + 0.5) * m_dx;
+  }
+  [[nodiscard]] constexpr auto ym(Index j) const noexcept -> Float {
+    return m_y_min + (j + 0.5) * m_dy;
+  }
+
   [[nodiscard]] constexpr auto alloc_scalar() const noexcept -> Scalar {
     return alloc(m_nx, m_ny, m_nghost);
   }
