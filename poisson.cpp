@@ -121,7 +121,7 @@ auto main(int argc, char** argv) -> int {
 
   const Float dt = 1e-1;
   calc_div(grid, u, div);
-  grid.foreach_i(FOREACH_FUNC { rhs(i, j) = div(i, j) / dt; });  // TODO: Should be -div/dt
+  grid.foreach_i(FOREACH_FUNC { rhs(i, j) = div(i, j) / dt; });
 
   writer.write(0.0);
 
