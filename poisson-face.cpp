@@ -97,7 +97,8 @@ void dirichlet_bconds(FaceVector<Float, LAYOUT> uf) {
 template <typename Float, Layout LAYOUT>
 constexpr auto L1_norm(const Grid<Float, LAYOUT>& grid, Scalar<Float, LAYOUT> s) -> Float {
   Float res = 0.0;
-  grid.foreach_i([=, &res](Index i, Index j) { res += std::abs(s(i, j)) * grid.dv(); });
+  grid.template foreach_i<Exec::SERIAL>(
+      [=, &res](Index i, Index j) { res += std::abs(s(i, j)) * grid.dv(); });
   return res;
 }
 
