@@ -5,6 +5,10 @@
 #include <cstdlib>
 #include <type_traits>
 
+#ifdef NS_FVM_PARALLEL
+#include <Kokkos_Core.hpp>
+#endif  // NS_FVM_PARALLEL
+
 #include <Igor/Logging.hpp>
 
 #if defined(__clang__) || defined(__GNUC__)
@@ -29,6 +33,7 @@ using Index = NS_FVM_INDEX_TYPE;
 //       parallelization.
 enum class Layout { C, F };
 enum class Dimension { X, Y };
+enum class Exec { PARALLEL, SERIAL };
 
 template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
@@ -41,6 +46,12 @@ class Vector;
 template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
 class FaceVector;
+
+#ifdef NS_FVM_PARALLEL
+namespace detail {
+size_t use_kokkos = 0;
+}
+#endif  // NS_FVM_PARALLEL
 
 template <typename Float, Layout LAYOUT = Layout::C>
 class Grid {
@@ -91,7 +102,39 @@ class Grid {
         m_dy((y_max - y_min) / ny),
         m_ny(ny),
         m_dv(m_dx * m_dy),
-        m_nghost(nghost) {}
+        m_nghost(nghost) {
+#ifdef NS_FVM_PARALLEL
+    if (detail::use_kokkos == 0) { Kokkos::initialize(); }
+    detail::use_kokkos += 1;
+#endif  // NS_FVM_PARALLEL
+  }
+
+#ifdef NS_FVM_PARALLEL
+  constexpr Grid(const Grid& other) noexcept {
+    if (this != &other) {
+      std::memcpy(
+          static_cast<void*>(this), static_cast<const void*>(&other), sizeof(Grid));  // NOLINT
+      detail::use_kokkos += 1;
+    }
+  }
+  constexpr Grid(Grid&& other) noexcept = default;
+
+  constexpr auto operator=(const Grid& other) noexcept -> Grid& {
+    if (this != &other) {
+      std::memcpy(
+          static_cast<void*>(this), static_cast<const void*>(&other), sizeof(Grid));  // NOLINT
+      detail::use_kokkos += 1;
+    }
+    return *this;
+  }
+  constexpr auto operator=(Grid&& other) noexcept -> Grid& = default;
+
+  constexpr ~Grid() noexcept {
+    IGOR_ASSERT(detail::use_kokkos >= 1, "There must be at least one Kokkos user (myself).");
+    if (detail::use_kokkos == 1) { Kokkos::finalize(); }
+    detail::use_kokkos -= 1;
+  }
+#endif  // NS_FVM_PARALLEL
 
   [[nodiscard]] constexpr auto x_min() const noexcept -> Float { return m_x_min; }
   [[nodiscard]] constexpr auto x_max() const noexcept -> Float { return m_x_max; }
@@ -141,48 +184,53 @@ class Grid {
   }
 
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
-  template <typename FUNC>
+  template <Exec EXEC, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void
   foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
-    if constexpr (LAYOUT == Layout::F) {
-      // Column-major: i is contiguous.
-      for (Index j = jlo; j < jhi; ++j) {
-        for (Index i = ilo; i < ihi; ++i) {
-          func(i, j);
-        }
-      }
-    } else {
-      // Row-major: j is contiguous.
-      for (Index i = ilo; i < ihi; ++i) {
+#ifdef NS_FVM_PARALLEL
+    if constexpr (EXEC == Exec::PARALLEL) {
+      Kokkos::parallel_for("foreach_range", Kokkos::MDRangePolicy({ilo, jlo}, {ihi, jhi}), func);
+    } else
+#endif  // NS_FVM_PARALLEL
+      if constexpr (LAYOUT == Layout::F) {
+        // Column-major: i is contiguous.
         for (Index j = jlo; j < jhi; ++j) {
-          func(i, j);
+          for (Index i = ilo; i < ihi; ++i) {
+            func(i, j);
+          }
+        }
+      } else {
+        // Row-major: j is contiguous.
+        for (Index i = ilo; i < ihi; ++i) {
+          for (Index j = jlo; j < jhi; ++j) {
+            func(i, j);
+          }
         }
       }
-    }
   }
 
-  template <Dimension DIM, typename FUNC>
+  template <Dimension DIM, Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_face_i(const FUNC& func) const noexcept {
     const Index ihi = (DIM == Dimension::X) ? nx() + 1 : nx();
     const Index jhi = (DIM == Dimension::X) ? ny() : ny() + 1;
-    foreach_range(0, ihi, 0, jhi, func);
+    foreach_range<EXEC>(0, ihi, 0, jhi, func);
   }
 
-  template <Dimension DIM, typename FUNC>
+  template <Dimension DIM, Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_face_a(const FUNC& func) const noexcept {
     const Index ihi = (DIM == Dimension::X) ? nx() + nghost() + 1 : nx() + nghost();
     const Index jhi = (DIM == Dimension::X) ? ny() + nghost() : ny() + nghost() + 1;
-    foreach_range(-nghost(), ihi, -nghost(), jhi, func);
+    foreach_range<EXEC>(-nghost(), ihi, -nghost(), jhi, func);
   }
 
-  template <typename FUNC>
+  template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_i(const FUNC& func) const noexcept {
-    foreach_range(0, nx(), 0, ny(), func);
+    foreach_range<EXEC>(0, nx(), 0, ny(), func);
   }
 
-  template <typename FUNC>
+  template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_a(const FUNC& func) const noexcept {
-    foreach_range(-nghost(), nx() + nghost(), -nghost(), ny() + nghost(), func);
+    foreach_range<EXEC>(-nghost(), nx() + nghost(), -nghost(), ny() + nghost(), func);
   }
 };
 
