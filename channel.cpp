@@ -1,30 +1,30 @@
-#include <charconv>
+#include <poisfft.h>
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
+#include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
 #include "Grid.hpp"
 #include "IO.hpp"
-#include "Quadrature.hpp"
 #include "VTKWriter.hpp"
 
-using Float                  = double;
+using Float              = double;
 
-constexpr Float x_min        = 0.0;
-constexpr Float x_max        = 1.0;
-constexpr Float y_min        = 0.0;
-constexpr Float y_max        = 1.0;
-constexpr Index N            = 64;
+constexpr Float x_min    = 0.0;
+constexpr Float x_max    = 1.0;
+constexpr Float y_min    = 0.0;
+constexpr Float y_max    = 1.0;
+constexpr Index N        = 64;
 
-constexpr Float rho          = 1.0;
-constexpr Float mu           = 1.0;
-constexpr Float Uin          = 1.0;
+constexpr Float rho      = 1.0;
+constexpr Float mu       = 1.0;
+constexpr Float Uin      = 1.0;
 
-constexpr Float tend         = 0.1;
-constexpr Float dt_write     = tend / 100.0;
+constexpr Float tend     = 0.1;
+constexpr Float dt_write = tend / 100.0;
 
-constexpr Index NUM_SUB_ITER = 5;
+// constexpr Index NUM_SUB_ITER = 5;
 
 template <typename Float, Layout LAYOUT>
 constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
@@ -42,8 +42,8 @@ constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
     const auto dudy_r = (u.x(i, j + 1) - u.x(i, j - 1)) / (2.0 * grid.dy());
     const auto dudy   = (dudy_r + dudy_l) / 2.0;
 
-    FU.x(i, j)        = Igor::sqr(ui) + 2.0 * mu * dudx;
-    FV.x(i, j)        = ui * vi + mu * (dudy + dvdx);
+    FU.x(i, j)        = Igor::sqr(ui) + 2.0 * mu / rho * dudx;
+    FV.x(i, j)        = ui * vi + mu / rho * (dudy + dvdx);
   });
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
     const auto ui     = (u.x(i, j) + u.x(i, j - 1)) / 2.0;
@@ -56,8 +56,8 @@ constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
     const auto dvdx_t = (u.y(i + 1, j) - u.y(i - 1, j)) / (2.0 * grid.dx());
     const auto dvdx   = (dvdx_t + dvdx_b) / 2.0;
 
-    FU.y(i, j)        = ui * vi + mu * (dudy + dvdx);
-    FV.y(i, j)        = Igor::sqr(vi) + 2.0 * mu * dvdy;
+    FU.y(i, j)        = ui * vi + mu / rho * (dudy + dvdx);
+    FV.y(i, j)        = Igor::sqr(vi) + 2.0 * mu / rho * dvdy;
   });
 }
 
@@ -107,6 +107,14 @@ constexpr void update_u(const Grid<Float, LAYOUT>& grid,
   });
 }
 
+template <typename Float, Layout LAYOUT>
+void calc_div(const Grid<Float, LAYOUT>& grid, Vector<Float, LAYOUT> u, Scalar<Float, LAYOUT> div) {
+  grid.foreach_i(FOREACH_FUNC {
+    div(i, j) = (u.x(i + 1, j) - u.x(i - 1, j)) / (2.0 * grid.dx()) +  //
+                (u.y(i, j + 1) - u.y(i, j - 1)) / (2.0 * grid.dy());
+  });
+}
+
 auto main() -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
@@ -128,8 +136,20 @@ auto main() -> int {
   auto p = grid.alloc_scalar();
   IGOR_DEFER(grid.free(p););
 
+  auto div = grid.alloc_scalar();
+  IGOR_DEFER(grid.free(div););
+
   Float dt = 0.0;
   Float t  = 0.0;
+
+  // = Linear solver ===============================================================================
+  const std::array<int, 2> ns   = {grid.nx() + 2 * grid.nghost(), grid.ny() + 2 * grid.nghost()};
+  const std::array<Float, 2> Ls = {(grid.x_max() - grid.x_min()) + 2.0 * grid.dx(),
+                                   (grid.y_max() - grid.y_min()) + 2.0 * grid.dy()};
+  const std::array<int, 4> BCs  = {
+      PoisFFT::NEUMANN, PoisFFT::NEUMANN, PoisFFT::NEUMANN, PoisFFT::NEUMANN};
+  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::SPECTRAL);
+  // = Linear solver ===============================================================================
 
   grid.foreach_i(FOREACH_FUNC {
     u.x(i, j) = Uin;
@@ -148,7 +168,7 @@ auto main() -> int {
     grid.foreach_i<Exec::SERIAL>([=, &u_max](Index i, Index j) {
       u_max = std::max({std::abs(u.x(i, j)), std::abs(u.y(i, j)), u_max});
     });
-    dt = 0.5 * std::min(grid.dx(), grid.dy()) / u_max;
+    dt = std::min(0.5 * std::min(grid.dx(), grid.dy()) / u_max, dt_write);
     dt = std::min(dt, tend - t);
 
     copy(u, u_old);
@@ -167,13 +187,31 @@ auto main() -> int {
     update_u(grid, dt / 2.0, FU, FV, u_old, u);
     boundary_conditions(u);
 
+    calc_div(grid, u, div);
+    grid.foreach_i(FOREACH_FUNC { div(i, j) /= dt; });
+    solver.execute(p.data(), div.data());
+    grid.foreach_i(FOREACH_FUNC {
+      u.x(i, j) -= dt * (p(i + 1, j) - p(i - 1, j)) / (2.0 * grid.dx());
+      u.y(i, j) -= dt * (p(i, j + 1) - p(i, j - 1)) / (2.0 * grid.dy());
+    });
+
     calc_flux(grid, u, FU, FV);
     update_u(grid, dt, FU, FV, u_old, u);
     boundary_conditions(u);
+
+    calc_div(grid, u, div);
+    grid.foreach_i(FOREACH_FUNC { div(i, j) /= dt; });
+    solver.execute(p.data(), div.data());
+    grid.foreach_i(FOREACH_FUNC {
+      u.x(i, j) -= dt * (p(i + 1, j) - p(i - 1, j)) / (2.0 * grid.dx());
+      u.y(i, j) -= dt * (p(i, j + 1) - p(i, j - 1)) / (2.0 * grid.dy());
+    });
 #endif
 
     t += dt;
-    if (should_save(t, dt, dt_write, tend) && !writer.write(t)) { return 1; }
+    if (should_save(t, dt, dt_write, tend)) {
+      if (!writer.write(t)) { return 1; }
+    }
   }
 
   Igor::Info("Ok.");
