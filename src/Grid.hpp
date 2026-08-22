@@ -186,7 +186,7 @@ class Grid {
   }
 
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
-  template <Exec EXEC, typename FUNC>
+  template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void
   foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
 #ifdef NS_FVM_PARALLEL
@@ -233,6 +233,16 @@ class Grid {
   template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_a(const FUNC& func) const noexcept {
     foreach_range<EXEC>(-nghost(), nx() + nghost(), -nghost(), ny() + nghost(), func);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename FUNC>
+  NS_FVM_FOREACH_DEF constexpr void foreach_vertex_i(const FUNC& func) const noexcept {
+    foreach_range<EXEC>(0, nx() + 1, 0, ny() + 1, func);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename FUNC>
+  NS_FVM_FOREACH_DEF constexpr void foreach_vertex_a(const FUNC& func) const noexcept {
+    foreach_range<EXEC>(-nghost(), nx() + 1 + nghost(), -nghost(), ny() + 1 + nghost(), func);
   }
 };
 
