@@ -42,6 +42,10 @@ class Scalar;
 
 template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
+class VertexScalar;
+
+template <typename Float, Layout LAYOUT>
+requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
 class Vector;
 
 template <typename Float, Layout LAYOUT>
@@ -75,9 +79,10 @@ size_t KokkosRefCount::m_count = 0;
 
 template <typename Float, Layout LAYOUT = Layout::C>
 class Grid {
-  using Scalar     = Scalar<Float, LAYOUT>;
-  using Vector     = Vector<Float, LAYOUT>;
-  using FaceVector = FaceVector<Float, LAYOUT>;
+  using Scalar       = Scalar<Float, LAYOUT>;
+  using VertexScalar = VertexScalar<Float, LAYOUT>;
+  using Vector       = Vector<Float, LAYOUT>;
+  using FaceVector   = FaceVector<Float, LAYOUT>;
 
   Float m_x_min;
   Float m_x_max;
@@ -107,6 +112,7 @@ class Grid {
     const auto size = static_cast<size_t>(nx + 2 * nghost) * static_cast<size_t>(ny + 2 * nghost);
     Float* data     = static_cast<Float*>(std::calloc(size, sizeof(Float)));  // NOLINT
     IGOR_ASSERT(data != nullptr, "Could not allocate scalar.");
+    m_to_free->push_back(data);
     return {data, nx, ny, nghost};
   }
 
@@ -165,6 +171,9 @@ class Grid {
   [[nodiscard]] constexpr auto alloc_scalar() const noexcept -> Scalar {
     return alloc(m_nx, m_ny, m_nghost);
   }
+  [[nodiscard]] constexpr auto alloc_vertex_scalar() const noexcept -> VertexScalar {
+    return alloc(m_nx + 1, m_ny + 1, m_nghost);
+  }
   [[nodiscard]] constexpr auto alloc_vector() const noexcept -> Vector {
     auto x = alloc_scalar();
     auto y = alloc_scalar();
@@ -175,18 +184,6 @@ class Grid {
     auto y = alloc(m_nx, m_ny + 1, m_nghost);
     return {x, y};
   }
-
-  // constexpr void free(Scalar& s) const noexcept {
-  //   std::free(s.data());  // NOLINT
-  // }
-  // constexpr void free(Vector& v) const noexcept {
-  //   free(v.x);
-  //   free(v.y);
-  // }
-  // constexpr void free(FaceVector& v) const noexcept {
-  //   free(v.x);
-  //   free(v.y);
-  // }
 
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
   template <Exec EXEC, typename FUNC>
@@ -288,6 +285,32 @@ class Scalar {
   [[nodiscard]] constexpr auto nx() const noexcept -> Index { return m_nx; }
   [[nodiscard]] constexpr auto ny() const noexcept -> Index { return m_ny; }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_nghost; }
+
+  friend class Grid<Float, LAYOUT>;
+};
+
+template <typename Float, Layout LAYOUT = Layout::C>
+requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
+class VertexScalar {
+  using Scalar = Scalar<Float, LAYOUT>;
+  Scalar m_s;
+
+  constexpr VertexScalar(Scalar s) noexcept
+      : m_s(s) {}
+
+ public:
+  constexpr VertexScalar(const VertexScalar& other) noexcept                    = default;
+  constexpr VertexScalar(VertexScalar&& other) noexcept                         = default;
+  constexpr auto operator=(const VertexScalar& other) noexcept -> VertexScalar& = default;
+  constexpr auto operator=(VertexScalar&& other) noexcept -> VertexScalar&      = default;
+  constexpr ~VertexScalar() noexcept                                            = default;
+
+  constexpr auto operator()(Index i, Index j) const noexcept -> Float& { return m_s(i, j); }
+  [[nodiscard]] constexpr auto data() const noexcept -> Float* { return m_s.data(); }
+  [[nodiscard]] constexpr auto size() const noexcept -> Index { m_s.size(); }
+  [[nodiscard]] constexpr auto nx() const noexcept -> Index { return m_s.nx(); }
+  [[nodiscard]] constexpr auto ny() const noexcept -> Index { return m_s.ny(); }
+  [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_s.nghost(); }
 
   friend class Grid<Float, LAYOUT>;
 };
