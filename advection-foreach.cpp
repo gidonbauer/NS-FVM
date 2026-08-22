@@ -151,22 +151,13 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 3);
 
   auto u_old = grid.alloc_scalar();
-  Igor::Defer free_u_old([&] { grid.free(u_old); });
+  auto u     = grid.alloc_scalar();
+  auto uL    = grid.alloc_face_vector();
+  auto uR    = grid.alloc_face_vector();
+  auto F     = grid.alloc_face_vector();
 
-  auto u = grid.alloc_scalar();
-  Igor::Defer free_u([&] { grid.free(u); });
-
-  auto uL = grid.alloc_face_vector();
-  Igor::Defer free_uL([&] { grid.free(uL); });
-
-  auto uR = grid.alloc_face_vector();
-  Igor::Defer free_uR([&] { grid.free(uR); });
-
-  auto F = grid.alloc_face_vector();
-  Igor::Defer free_F([&] { grid.free(F); });
-
-  Float dt = 0.0;
-  Float t  = 0.0;
+  Float dt   = 0.0;
+  Float t    = 0.0;
 
   grid.foreach_i(FOREACH_FUNC {
     const Float x = grid.x_min() + (i + 0.5) * grid.dx();

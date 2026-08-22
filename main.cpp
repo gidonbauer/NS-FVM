@@ -32,11 +32,8 @@ auto v_analytical(Float x, Float y, Float t) -> Float {
 auto main() -> int {
   Grid grid(x_min, x_max, NX, y_min, y_max, NY);
 
-  auto p = grid.alloc_scalar();
-  Igor::Defer free_p([&] { grid.free(p); });
-
-  auto u = grid.alloc_vector();
-  Igor::Defer free_u([&] { grid.free(u); });
+  auto p         = grid.alloc_scalar();
+  auto u         = grid.alloc_vector();
 
   const Float dx = (x_max - x_min) / NX;
   const Float dy = (y_max - y_min) / NY;

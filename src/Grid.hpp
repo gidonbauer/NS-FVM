@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 #include <type_traits>
 
 #ifdef NS_FVM_PARALLEL
@@ -48,9 +49,28 @@ requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructi
 class FaceVector;
 
 #ifdef NS_FVM_PARALLEL
-namespace detail {
-size_t use_kokkos = 0;
-}
+class KokkosRefCount {
+  static size_t m_count;
+
+ public:
+  constexpr KokkosRefCount() noexcept {
+    if (m_count == 0) { Kokkos::initialize(); }
+    m_count += 1;
+  }
+  constexpr KokkosRefCount(const KokkosRefCount& /*other*/) noexcept { m_count += 1; }
+  constexpr KokkosRefCount(KokkosRefCount&& /*other*/) noexcept = default;
+  constexpr auto operator=(const KokkosRefCount& other) noexcept -> KokkosRefCount& {
+    if (this != &other) { m_count += 1; }
+    return *this;
+  }
+  constexpr auto operator=(KokkosRefCount&& /*other*/) noexcept -> KokkosRefCount& = default;
+  constexpr ~KokkosRefCount() noexcept {
+    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
+    if (m_count == 1) { Kokkos::finalize(); }
+    m_count -= 1;
+  }
+};
+size_t KokkosRefCount::m_count = 0;
 #endif  // NS_FVM_PARALLEL
 
 template <typename Float, Layout LAYOUT = Layout::C>
@@ -72,6 +92,11 @@ class Grid {
   Float m_dv;
 
   Index m_nghost;
+
+  std::shared_ptr<std::vector<Float*>> m_to_free = std::make_shared<std::vector<Float*>>();
+#ifdef NS_FVM_PARALLEL
+  KokkosRefCount m_kokkos_count;
+#endif  // NS_FVM_PARALLEL
 
   constexpr auto alloc(Index nx, Index ny, Index nghost) const noexcept -> Scalar {
     IGOR_ASSERT(nx > 0 && ny > 0 && nghost >= 0,
@@ -102,39 +127,19 @@ class Grid {
         m_dy((y_max - y_min) / ny),
         m_ny(ny),
         m_dv(m_dx * m_dy),
-        m_nghost(nghost) {
-#ifdef NS_FVM_PARALLEL
-    if (detail::use_kokkos == 0) { Kokkos::initialize(); }
-    detail::use_kokkos += 1;
-#endif  // NS_FVM_PARALLEL
-  }
+        m_nghost(nghost) {}
 
-#ifdef NS_FVM_PARALLEL
-  constexpr Grid(const Grid& other) noexcept {
-    if (this != &other) {
-      std::memcpy(
-          static_cast<void*>(this), static_cast<const void*>(&other), sizeof(Grid));  // NOLINT
-      detail::use_kokkos += 1;
-    }
-  }
-  constexpr Grid(Grid&& other) noexcept = default;
-
-  constexpr auto operator=(const Grid& other) noexcept -> Grid& {
-    if (this != &other) {
-      std::memcpy(
-          static_cast<void*>(this), static_cast<const void*>(&other), sizeof(Grid));  // NOLINT
-      detail::use_kokkos += 1;
-    }
-    return *this;
-  }
-  constexpr auto operator=(Grid&& other) noexcept -> Grid& = default;
-
+  constexpr Grid(const Grid& other) noexcept                    = default;
+  constexpr Grid(Grid&& other) noexcept                         = default;
+  constexpr auto operator=(const Grid& other) noexcept -> Grid& = default;
+  constexpr auto operator=(Grid&& other) noexcept -> Grid&      = default;
   constexpr ~Grid() noexcept {
-    IGOR_ASSERT(detail::use_kokkos >= 1, "There must be at least one Kokkos user (myself).");
-    if (detail::use_kokkos == 1) { Kokkos::finalize(); }
-    detail::use_kokkos -= 1;
+    if (m_to_free.use_count() == 1) {
+      for (Float* ptr : *m_to_free) {
+        std::free(ptr);  // NOLINT
+      }
+    }
   }
-#endif  // NS_FVM_PARALLEL
 
   [[nodiscard]] constexpr auto x_min() const noexcept -> Float { return m_x_min; }
   [[nodiscard]] constexpr auto x_max() const noexcept -> Float { return m_x_max; }
@@ -171,17 +176,17 @@ class Grid {
     return {x, y};
   }
 
-  constexpr void free(Scalar& s) const noexcept {
-    std::free(s.data());  // NOLINT
-  }
-  constexpr void free(Vector& v) const noexcept {
-    free(v.x);
-    free(v.y);
-  }
-  constexpr void free(FaceVector& v) const noexcept {
-    free(v.x);
-    free(v.y);
-  }
+  // constexpr void free(Scalar& s) const noexcept {
+  //   std::free(s.data());  // NOLINT
+  // }
+  // constexpr void free(Vector& v) const noexcept {
+  //   free(v.x);
+  //   free(v.y);
+  // }
+  // constexpr void free(FaceVector& v) const noexcept {
+  //   free(v.x);
+  //   free(v.y);
+  // }
 
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
   template <Exec EXEC, typename FUNC>
@@ -351,7 +356,7 @@ constexpr void copy(const Vector<Float, LAYOUT> src, Vector<Float, LAYOUT> dst) 
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void copy(const FaceVector<Float, LAYOUT> src, Vector<Float, LAYOUT> dst) {
+constexpr void copy(const FaceVector<Float, LAYOUT> src, FaceVector<Float, LAYOUT> dst) {
   copy(src.x, dst.x);
   copy(src.y, dst.y);
 }

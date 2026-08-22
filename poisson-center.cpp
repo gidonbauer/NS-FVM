@@ -73,19 +73,11 @@ auto main(int argc, char** argv) -> int {
   Grid<Float> grid(0.0, L, N, 0.0, L, N);
 
   auto p = grid.alloc_scalar();
-  IGOR_DEFER(grid.free(p););
-
   // auto uf = grid.alloc_face_vector();
-  // IGOR_DEFER(grid.free(uf););
 
-  auto u = grid.alloc_vector();
-  IGOR_DEFER(grid.free(u););
-
+  auto u   = grid.alloc_vector();
   auto div = grid.alloc_scalar();
-  IGOR_DEFER(grid.free(div););
-
   auto rhs = grid.alloc_scalar();
-  IGOR_DEFER(grid.free(rhs););
 
   VTKWriter writer(output_dir, grid);
   writer.add_field("p", p);
