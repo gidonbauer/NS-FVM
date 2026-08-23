@@ -1,3 +1,5 @@
+#include <charconv>
+
 #include <poisfft.h>
 
 #include <Igor/Defer.hpp>
@@ -16,13 +18,12 @@ constexpr Float x_min    = 0.0;
 constexpr Float x_max    = 1.0;
 constexpr Float y_min    = 0.0;
 constexpr Float y_max    = 1.0;
-constexpr Index N        = 64;
 
 constexpr Float rho      = 1.0;
 constexpr Float mu       = 1.0;
 constexpr Float Uin      = 1.0;
 
-constexpr Float tend     = 0.1;
+constexpr Float tend     = 5e-2;
 constexpr Float dt_write = tend / 100.0;
 
 // Fully-developed (Poiseuille) inflow profile: parabolic, zero at the walls, peak value Uin at the
@@ -140,7 +141,20 @@ constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, L
   grid.foreach_a(FOREACH_FUNC { dp(i, j) -= avg_dp; });
 }
 
-auto main() -> int {
+auto main(int argc, char** argv) -> int {
+  const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
+  if (argc < 2) {
+    Igor::Error("{}", usage_str);
+    return 1;
+  }
+
+  Index N = 0;
+  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
+    Igor::Error("{}", usage_str);
+    Igor::Error("  Invalid grid size `{}`", argv[1]);
+    return 1;
+  }
+
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
