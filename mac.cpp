@@ -64,7 +64,12 @@ constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
                          VertexScalar<Float, LAYOUT> FUY,
                          VertexScalar<Float, LAYOUT> FVX,
                          Scalar<Float, LAYOUT> FVY) {
-  grid.foreach_i(FOREACH_FUNC {
+  std::fill_n(FUX.data(), FUX.size(), std::numeric_limits<Float>::quiet_NaN());
+  std::fill_n(FUY.data(), FUY.size(), std::numeric_limits<Float>::quiet_NaN());
+  std::fill_n(FVX.data(), FVX.size(), std::numeric_limits<Float>::quiet_NaN());
+  std::fill_n(FVY.data(), FVY.size(), std::numeric_limits<Float>::quiet_NaN());
+
+  grid.foreach_a(FOREACH_FUNC {
     const auto ui   = (u.right(i, j) + u.left(i, j)) / 2.0;
     const auto dudx = (u.right(i, j) - u.left(i, j)) / grid.dx();
     FUX(i, j)       = -Igor::sqr(ui) - p(i, j) / rho + 2.0 * mu / rho * dudx;
@@ -110,71 +115,19 @@ constexpr void update_u(const Grid<Float, LAYOUT>& grid,
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void velocity_boundary_conditions(const Grid<Float, LAYOUT>& grid,
-                                            FaceVector<Float, LAYOUT> uf) {
-  IGOR_ASSERT(grid.nghost() == 1, "Expected exactly 1 ghost cell but got {}", grid.nghost());
-  const Index nx = grid.nx();
-  const Index ny = grid.ny();
-
-  for (Index j = 0; j < ny; ++j) {
-    uf.x(-1, j)     = inlet_u(grid.ym(j));  // Inlet: prescribed normal velocity.
-    uf.x(0, j)      = inlet_u(grid.ym(j));  // Inlet: prescribed normal velocity.
-    uf.y(-1, j)     = 0.0;
-    uf.y(0, j)      = 0.0;
-
-    uf.x(nx, j)     = uf.x(nx - 1, j);  // Outlet: zero gradient.
-    uf.x(nx + 1, j) = uf.x(nx - 1, j);  // Outlet: zero gradient.
-    uf.y(nx, j)     = uf.y(nx - 1, j);
-    uf.y(nx + 1, j) = uf.y(nx - 1, j);
-  }
-  for (Index i = 0; i < nx; ++i) {
-    uf.x(i, -1)     = 0.0;  // No penetration through the walls.
-    uf.x(i, 0)      = 0.0;
-    uf.x(i, ny)     = 0.0;
-    uf.x(i, ny + 1) = 0.0;
-
-    uf.y(i, -1)     = 0.0;  // No penetration through the walls.
-    uf.y(i, 0)      = 0.0;
-    uf.y(i, ny)     = 0.0;
-    uf.y(i, ny + 1) = 0.0;
-  }
-
-  // Rescale the outflow so that it matches the inflow exactly (global continuity).
-  Float Qin  = 0.0;
-  Float Qout = 0.0;
-  for (Index j = 0; j < ny; ++j) {
-    Qin  += uf.x(0, j) * grid.dy();
-    Qout += uf.x(nx, j) * grid.dy();
-  }
-  const Float corr = (Qin - Qout) / (static_cast<Float>(ny) * grid.dy());
-  for (Index j = 0; j < ny; ++j) {
-    uf.x(nx, j)     += corr;
-    uf.x(nx + 1, j) += corr;
-  }
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
 void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> u) {
-  // Zero-gradient (convective) outflow at the outlet face. This must be prescribed explicitly: the
-  // outlet normal face `u.x(nx, .)` is a boundary DOF that `update_u` otherwise advances with the
-  // never-computed ghost flux `FUX(nx, .)`, which makes it diverge. The right (Neumann) BC only
-  // sets the ghost, not this face, so we fix it here before enforcing global continuity.
-  // TODO: This should be in boundary condition
-  for (Index j = 0; j < u.x.ny(); ++j) {
-    u.x(u.x.nx() - 1, j) = u.x(u.x.nx() - 2, j);
-  }
+  IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell but got {}", grid.nghost());
 
   // Rescale the outflow so that it matches the inflow exactly (global continuity).
   Float Qin  = 0.0;
   Float Qout = 0.0;
   for (Index j = 0; j < u.x.ny(); ++j) {
-    Qin  += u.x(-1, j) * grid.dy();
-    Qout += u.x(u.x.nx(), j) * grid.dy();
+    Qin  += u.x(0, j) * grid.dy();
+    Qout += u.x(u.x.nx() - 1, j) * grid.dy();
   }
   const Float corr = (Qin - Qout) / (static_cast<Float>(u.x.ny()) * grid.dy());
   for (Index j = 0; j < u.x.ny(); ++j) {
-    u.x(u.x.nx(), j) += corr;
+    u.x(u.x.nx() - 1, j) += corr;
   }
 }
 
@@ -214,7 +167,7 @@ auto main() -> int {
   const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
   const std::array<int, 4> BCs  = {
       PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
-  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data());
+  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
   // = Linear solver ===============================================================================
 
@@ -282,7 +235,6 @@ auto main() -> int {
     calc_div(grid, u, div);
 
     t += dt;
-    Igor::Debug("t = {:.6e}, dt = {:.6e}", t, dt);
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }

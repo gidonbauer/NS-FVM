@@ -317,7 +317,7 @@ class VertexScalar {
 
   constexpr auto operator()(Index i, Index j) const noexcept -> Float& { return m_s(i, j); }
   [[nodiscard]] constexpr auto data() const noexcept -> Float* { return m_s.data(); }
-  [[nodiscard]] constexpr auto size() const noexcept -> Index { m_s.size(); }
+  [[nodiscard]] constexpr auto size() const noexcept -> Index { return m_s.size(); }
   [[nodiscard]] constexpr auto nx() const noexcept -> Index { return m_s.nx(); }
   [[nodiscard]] constexpr auto ny() const noexcept -> Index { return m_s.ny(); }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_s.nghost(); }
