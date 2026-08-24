@@ -10,28 +10,29 @@
 #include "BoundaryConditions.hpp"
 #include "Grid.hpp"
 #include "IO.hpp"
+#include "Monitor.hpp"
 #include "VTKWriter.hpp"
 
-using Float              = double;
+using Float                = double;
 
-constexpr Float x_min    = 0.0;
-constexpr Float x_max    = 1.0;
-constexpr Float y_min    = 0.0;
-constexpr Float y_max    = 1.0;
+constexpr Float x_min      = 0.0;
+constexpr Float x_max      = 1.0;
+constexpr Float y_min      = 0.0;
+constexpr Float y_max      = 1.0;
 
-constexpr Float rho      = 1.0;
-constexpr Float mu       = 1.0;
-constexpr Float Uin      = 1.0;
+constexpr Float rho        = 1.0;
+constexpr Float mu         = 1.0;
+constexpr Float Uavg       = 1.0;
 
-constexpr Float tend     = 5e-2;
-constexpr Float dt_write = tend / 100.0;
+constexpr Float CFL_number = 0.7;
+constexpr Float tend       = 5e-2;
+constexpr Float dt_write   = tend / 100.0;
 
-// Fully-developed (Poiseuille) inflow profile: parabolic, zero at the walls, peak value Uin at the
-// centreline. A wall-consistent inlet avoids the corner singularity a top-hat profile would create.
+// =================================================================================================
 constexpr auto inlet_u(Float y) -> Float {
   constexpr Float H = y_max - y_min;
-  const Float s     = (y - y_min) / H;  // Normalised wall distance in [0, 1].
-  return Uin * 4.0 * s * (1.0 - s);
+  const Float s     = (y - y_min) / H;
+  return Uavg * 6.0 * s * (1.0 - s);
 }
 
 // =================================================================================================
@@ -65,11 +66,6 @@ constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
                          VertexScalar<Float, LAYOUT> FUY,
                          VertexScalar<Float, LAYOUT> FVX,
                          Scalar<Float, LAYOUT> FVY) {
-  std::fill_n(FUX.data(), FUX.size(), std::numeric_limits<Float>::quiet_NaN());
-  std::fill_n(FUY.data(), FUY.size(), std::numeric_limits<Float>::quiet_NaN());
-  std::fill_n(FVX.data(), FVX.size(), std::numeric_limits<Float>::quiet_NaN());
-  std::fill_n(FVY.data(), FVY.size(), std::numeric_limits<Float>::quiet_NaN());
-
   grid.foreach_a(FOREACH_FUNC {
     const auto ui   = (u.right(i, j) + u.left(i, j)) / 2.0;
     const auto dudx = (u.right(i, j) - u.left(i, j)) / grid.dx();
@@ -78,7 +74,6 @@ constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
     const auto vi   = (u.top(i, j) + u.bottom(i, j)) / 2.0;
     const auto dvdy = (u.top(i, j) - u.bottom(i, j)) / grid.dy();
     FVY(i, j)       = -Igor::sqr(vi) - p(i, j) / rho + 2.0 * mu / rho * dvdy;
-    ;
   });
 
   grid.foreach_vertex_i(FOREACH_FUNC {
@@ -134,6 +129,23 @@ void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> 
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
+constexpr auto adjust_dt(const Grid<Float, LAYOUT>& grid,
+                         const FaceVector<Float, LAYOUT> u,
+                         Float CFL) noexcept -> Float {
+  Float u_max = 0.0;
+  grid.template foreach_face_i<Dimension::X, Exec::SERIAL>(
+      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.x(i, j)), u_max); });
+  grid.template foreach_face_i<Dimension::Y, Exec::SERIAL>(
+      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.y(i, j)), u_max); });
+  const auto h = std::min(grid.dx(), grid.dy());
+  return std::min({
+      CFL * h / u_max,
+      CFL * 0.25 * Igor::sqr(h) * rho / mu,
+  });
+}
+
+// =================================================================================================
+template <typename Float, Layout LAYOUT>
 constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, LAYOUT> dp) {
   Float avg_dp = 0.0;
   grid.template foreach_a<Exec::SERIAL>([=, &avg_dp](Index i, Index j) { avg_dp += dp(i, j); });
@@ -141,6 +153,30 @@ constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, L
   grid.foreach_a(FOREACH_FUNC { dp(i, j) -= avg_dp; });
 }
 
+// =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr auto abs_max(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT> s) -> Float {
+  Float amax = 0.0;
+  grid.template foreach_a<Exec::SERIAL>(
+      [=, &amax](Index i, Index j) { amax = std::max(amax, std::abs(s(i, j))); });
+  return amax;
+}
+
+template <typename Float, Layout LAYOUT>
+constexpr auto abs_max(const Grid<Float, LAYOUT>& grid, const FaceVector<Float, LAYOUT> v)
+    -> std::pair<Float, Float> {
+  Float amax_x = 0.0;
+  grid.template foreach_face_a<Dimension::X, Exec::SERIAL>(
+      [=, &amax_x](Index i, Index j) { amax_x = std::max(amax_x, std::abs(v.x(i, j))); });
+
+  Float amax_y = 0.0;
+  grid.template foreach_face_a<Dimension::Y, Exec::SERIAL>(
+      [=, &amax_y](Index i, Index j) { amax_y = std::max(amax_y, std::abs(v.y(i, j))); });
+
+  return {amax_x, amax_y};
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -206,52 +242,63 @@ auto main(int argc, char** argv) -> int {
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
 
+  Float p_max         = abs_max(grid, p);
+  auto [u_max, v_max] = abs_max(grid, u);
+  Float div_max       = abs_max(grid, div);
+
+  Monitor<Float> monitor(output_dir + "/monitor.log");
+  monitor.add_variable(&t, "t");
+  monitor.add_variable(&dt, "dt");
+  monitor.add_variable(&p_max, "absmax(p)");
+  monitor.add_variable(&u_max, "absmax(u)");
+  monitor.add_variable(&v_max, "absmax(v)");
+  monitor.add_variable(&div_max, "absmax(div)");
+  monitor.write();
+
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
     // Time-step size: convective CFL and the (2D) explicit-diffusion limit dt <= h^2 / (4 nu).
-    Float u_max = 0.0;
-    grid.foreach_face_i<Dimension::X, Exec::SERIAL>(
-        [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.x(i, j)), u_max); });
-    grid.foreach_face_i<Dimension::Y, Exec::SERIAL>(
-        [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.y(i, j)), u_max); });
-    const auto h = std::min(grid.dx(), grid.dy());
-    dt           = std::min({
-        0.5 * h / u_max,
-        0.2 * Igor::sqr(h) * rho / mu,
-        dt_write,
-        tend - t,
-    });
+    dt = adjust_dt(grid, u, CFL_number);
+    dt = std::min({dt, dt_write, tend - t});
 
     copy(u, u_old);
 
-    // 1) Predictor: advance convection + diffusion, pressure
-    calc_flux(grid, u, p, FUX, FUY, FVX, FVY);
-    update_u(grid, dt, FUX, FUY, FVX, FVY, u_old, u);
-    apply_velocity_bconds(grid, bconds, u);
-    correct_outflow(grid, u);
+    for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
+      const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
-    // 2) Pressure correction: solve  laplace(dp) = (rho/dt) div(uf).
-    calc_div(grid, u, div);
-    grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / dt; });
-    solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
-    apply_neumann_bconds(grid, dp);
-    shift_dp_to_zero(grid, dp);
+      // 1) Predictor
+      calc_flux(grid, u, p, FUX, FUY, FVX, FVY);
+      update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
+      apply_velocity_bconds(grid, bconds, u);
+      correct_outflow(grid, u);
 
-    // 3) Project: correct the face velocity (compact gradient) and the cell velocity (central
-    //    gradient of the updated pressure), and accumulate the pressure.
-    grid.foreach_a(FOREACH_FUNC { p(i, j) += dp(i, j); });
-    grid.foreach_face_i<Dimension::X>(
-        FOREACH_FUNC { u.x(i, j) -= (dt / rho) * (dp(i, j) - dp(i - 1, j)) / grid.dx(); });
-    grid.foreach_face_i<Dimension::Y>(
-        FOREACH_FUNC { u.y(i, j) -= (dt / rho) * (dp(i, j) - dp(i, j - 1)) / grid.dy(); });
+      // 2) Pressure correction
+      calc_div(grid, u, div);
+      grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
+      solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+      apply_neumann_bconds(grid, dp);
+      shift_dp_to_zero(grid, dp);
+
+      // 3) Project
+      grid.foreach_a(FOREACH_FUNC { p(i, j) += dp(i, j); });
+      grid.foreach_face_i<Dimension::X>(
+          FOREACH_FUNC { u.x(i, j) -= (local_dt / rho) * (dp(i, j) - dp(i - 1, j)) / grid.dx(); });
+      grid.foreach_face_i<Dimension::Y>(
+          FOREACH_FUNC { u.y(i, j) -= (local_dt / rho) * (dp(i, j) - dp(i, j - 1)) / grid.dy(); });
+    }
 
     interpolate(grid, u, ui);
     calc_div(grid, u, div);
 
-    t += dt;
+    p_max                   = abs_max(grid, p);
+    std::tie(u_max, v_max)  = abs_max(grid, u);
+    div_max                 = abs_max(grid, div);
+
+    t                      += dt;
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }
+    monitor.write();
   }
 
   Igor::Info("Ok.");
