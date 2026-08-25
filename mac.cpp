@@ -8,25 +8,27 @@
 #include <Igor/Timer.hpp>
 
 #include "BoundaryConditions.hpp"
+#include "Common.hpp"
 #include "Grid.hpp"
 #include "IO.hpp"
+#include "Mac.hpp"
 #include "Monitor.hpp"
 #include "VTKWriter.hpp"
 
-using Float                = double;
+using Float              = double;
 
-constexpr Float x_min      = 0.0;
-constexpr Float x_max      = 1.0;
-constexpr Float y_min      = 0.0;
-constexpr Float y_max      = 1.0;
+constexpr Float x_min    = 0.0;
+constexpr Float x_max    = 1.0;
+constexpr Float y_min    = 0.0;
+constexpr Float y_max    = 1.0;
 
-constexpr Float rho        = 1.0;
-constexpr Float mu         = 1.0;
-constexpr Float Uavg       = 1.0;
+constexpr Float rho      = 1.0;
+constexpr Float mu       = 1.0;
+constexpr Float Uavg     = 1.0;
 
-constexpr Float CFL_number = 0.7;
-constexpr Float tend       = 5e-2;
-constexpr Float dt_write   = tend / 100.0;
+constexpr Float CFL      = 0.7;
+constexpr Float tend     = 5e-2;
+constexpr Float dt_write = tend / 100.0;
 
 // =================================================================================================
 constexpr auto inlet_u(Float y) -> Float {
@@ -37,83 +39,7 @@ constexpr auto inlet_u(Float y) -> Float {
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void calc_div(const Grid<Float, LAYOUT>& grid,
-                        const FaceVector<Float, LAYOUT> uf,
-                        Scalar<Float, LAYOUT> div) {
-  grid.foreach_i(FOREACH_FUNC {
-    div(i, j) = (uf.right(i, j) - uf.left(i, j)) / grid.dx() +  //
-                (uf.top(i, j) - uf.bottom(i, j)) / grid.dy();
-  });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr void interpolate(const Grid<Float, LAYOUT>& grid,
-                           const FaceVector<Float, LAYOUT> uf,
-                           Vector<Float, LAYOUT> ui) {
-  grid.foreach_i(FOREACH_FUNC {
-    ui.x(i, j) = (uf.right(i, j) + uf.left(i, j)) / 2.0;
-    ui.y(i, j) = (uf.top(i, j) + uf.bottom(i, j)) / 2.0;
-  });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
-                         const FaceVector<Float, LAYOUT> u,
-                         const Scalar<Float, LAYOUT> p,
-                         Scalar<Float, LAYOUT> FUX,
-                         VertexScalar<Float, LAYOUT> FUY,
-                         VertexScalar<Float, LAYOUT> FVX,
-                         Scalar<Float, LAYOUT> FVY) {
-  grid.foreach_a(FOREACH_FUNC {
-    const auto ui   = (u.right(i, j) + u.left(i, j)) / 2.0;
-    const auto dudx = (u.right(i, j) - u.left(i, j)) / grid.dx();
-    FUX(i, j)       = -Igor::sqr(ui) - p(i, j) / rho + 2.0 * mu / rho * dudx;
-
-    const auto vi   = (u.top(i, j) + u.bottom(i, j)) / 2.0;
-    const auto dvdy = (u.top(i, j) - u.bottom(i, j)) / grid.dy();
-    FVY(i, j)       = -Igor::sqr(vi) - p(i, j) / rho + 2.0 * mu / rho * dvdy;
-  });
-
-  grid.foreach_vertex_i(FOREACH_FUNC {
-    const auto ui   = (u.x(i, j) + u.x(i, j - 1)) / 2.0;
-    const auto dudy = (u.x(i, j) - u.x(i, j - 1)) / grid.dy();
-
-    const auto vi   = (u.y(i, j) + u.y(i - 1, j)) / 2.0;
-    const auto dvdx = (u.y(i, j) - u.y(i - 1, j)) / grid.dx();
-
-    FUY(i, j)       = -ui * vi + mu / rho * (dudy + dvdx);
-    FVX(i, j)       = -ui * vi + mu / rho * (dudy + dvdx);
-  });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr void update_u(const Grid<Float, LAYOUT>& grid,
-                        Float dt,
-                        const Scalar<Float, LAYOUT> FUX,
-                        const VertexScalar<Float, LAYOUT> FUY,
-                        const VertexScalar<Float, LAYOUT> FVX,
-                        const Scalar<Float, LAYOUT> FVY,
-                        const FaceVector<Float, LAYOUT> u_old,
-                        FaceVector<Float, LAYOUT> u) {
-  grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
-    u.x(i, j) = u_old.x(i, j) + dt * ((FUX(i, j) - FUX(i - 1, j)) / grid.dx() +
-                                      (FUY(i, j + 1) - FUY(i, j)) / grid.dy());
-  });
-
-  grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
-    u.y(i, j) = u_old.y(i, j) + dt * ((FVX(i + 1, j) - FVX(i, j)) / grid.dx() +
-                                      (FVY(i, j) - FVY(i, j - 1)) / grid.dy());
-  });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
 void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> u) {
-  IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell but got {}", grid.nghost());
-
   // Rescale the outflow so that it matches the inflow exactly (global continuity).
   Float Qin  = 0.0;
   Float Qout = 0.0;
@@ -125,55 +51,6 @@ void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> 
   for (Index j = 0; j < u.x.ny(); ++j) {
     u.x(u.x.nx() - 1, j) += corr;
   }
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr auto adjust_dt(const Grid<Float, LAYOUT>& grid,
-                         const FaceVector<Float, LAYOUT> u,
-                         Float CFL) noexcept -> Float {
-  Float u_max = 0.0;
-  grid.template foreach_face_i<Dimension::X, Exec::SERIAL>(
-      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.x(i, j)), u_max); });
-  grid.template foreach_face_i<Dimension::Y, Exec::SERIAL>(
-      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.y(i, j)), u_max); });
-  const auto h = std::min(grid.dx(), grid.dy());
-  return std::min({
-      CFL * h / u_max,
-      CFL * 0.25 * Igor::sqr(h) * rho / mu,
-  });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, LAYOUT> dp) {
-  Float avg_dp = 0.0;
-  grid.template foreach_a<Exec::SERIAL>([=, &avg_dp](Index i, Index j) { avg_dp += dp(i, j); });
-  avg_dp /= static_cast<Float>(grid.nx() * grid.ny());
-  grid.foreach_a(FOREACH_FUNC { dp(i, j) -= avg_dp; });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-constexpr auto abs_max(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT> s) -> Float {
-  Float amax = 0.0;
-  grid.template foreach_a<Exec::SERIAL>(
-      [=, &amax](Index i, Index j) { amax = std::max(amax, std::abs(s(i, j))); });
-  return amax;
-}
-
-template <typename Float, Layout LAYOUT>
-constexpr auto abs_max(const Grid<Float, LAYOUT>& grid, const FaceVector<Float, LAYOUT> v)
-    -> std::pair<Float, Float> {
-  Float amax_x = 0.0;
-  grid.template foreach_face_a<Dimension::X, Exec::SERIAL>(
-      [=, &amax_x](Index i, Index j) { amax_x = std::max(amax_x, std::abs(v.x(i, j))); });
-
-  Float amax_y = 0.0;
-  grid.template foreach_face_a<Dimension::Y, Exec::SERIAL>(
-      [=, &amax_y](Index i, Index j) { amax_y = std::max(amax_y, std::abs(v.y(i, j))); });
-
-  return {amax_x, amax_y};
 }
 
 // =================================================================================================
@@ -242,9 +119,15 @@ auto main(int argc, char** argv) -> int {
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
 
-  Float p_max         = abs_max(grid, p);
-  auto [u_max, v_max] = abs_max(grid, u);
-  Float div_max       = abs_max(grid, div);
+  Stats p_stats   = stats(grid, p);
+  Stats u_stats   = stats(grid, u.x);
+  Stats v_stats   = stats(grid, u.y);
+  Stats div_stats = stats(grid, div);
+
+  Float p_max     = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
+  Float u_max     = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
+  Float v_max     = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
+  Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
@@ -258,7 +141,7 @@ auto main(int argc, char** argv) -> int {
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
     // Time-step size: convective CFL and the (2D) explicit-diffusion limit dt <= h^2 / (4 nu).
-    dt = adjust_dt(grid, u, CFL_number);
+    dt = adjust_dt(grid, u, rho, mu, CFL);
     dt = std::min({dt, dt_write, tend - t});
 
     copy(u, u_old);
@@ -267,7 +150,7 @@ auto main(int argc, char** argv) -> int {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, FUX, FUY, FVX, FVY);
+      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, bconds, u);
       correct_outflow(grid, u);
@@ -290,11 +173,17 @@ auto main(int argc, char** argv) -> int {
     interpolate(grid, u, ui);
     calc_div(grid, u, div);
 
-    p_max                   = abs_max(grid, p);
-    std::tie(u_max, v_max)  = abs_max(grid, u);
-    div_max                 = abs_max(grid, div);
+    p_stats    = stats(grid, p);
+    u_stats    = stats(grid, u.x);
+    v_stats    = stats(grid, u.y);
+    div_stats  = stats(grid, div);
 
-    t                      += dt;
+    p_max      = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
+    u_max      = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
+    v_max      = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
+    div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
+
+    t         += dt;
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }

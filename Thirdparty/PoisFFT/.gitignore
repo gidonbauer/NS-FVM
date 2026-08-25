@@ -1,0 +1,13 @@
+*.mod
+*.o
+*.so
+*.os
+*.vtk
+*~
+back/*
+bin/*
+lib/*
+tmp/*
+scratch/*
+*.dblite
+fftw3.f03

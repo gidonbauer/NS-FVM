@@ -28,11 +28,16 @@ IGOR_DIR ?= ${HOME}/opt/Igor
 IGOR_INC = -I${IGOR_DIR}
 CXX_INC += ${IGOR_INC}
 
-POISFFT_DIR ?= ${HOME}/opt/PoisFFT
+POISFFT_DIR ?= ./Thirdparty/PoisFFT
 POISFFT_INC = -I${POISFFT_DIR}/src
-POISFFT_LIB = -L${POISFFT_DIR}/lib/gcc/ -Wl,-rpath,${POISFFT_DIR}/lib/gcc/ -lpoisfft
+POISFFT_LIB = -L${POISFFT_DIR}/lib/ -Wl,-rpath,${POISFFT_DIR}/lib/ -lpoisfft
+# POISFFT_LIB_OMP = -L${POISFFT_DIR}/lib/ -Wl,-rpath,${POISFFT_DIR}/lib/ -lpoisfft_omp
 CXX_INC += ${POISFFT_INC}
+# ifeq (${PARALLEL}, 1)
+# 	CXX_LIB += ${POISFFT_LIB_OMP}
+# else
 CXX_LIB += ${POISFFT_LIB}
+# endif
 
 ifeq (${PARALLEL}, 1)
 	OMP_DIR ?= /opt/homebrew/opt/libomp/

@@ -1,0 +1,257 @@
+import os
+comp = ARGUMENTS.get('comp','')
+prec = ARGUMENTS.get('prec','')
+mpi = ARGUMENTS.get('mpi','')
+openmp = ARGUMENTS.get('openmp','')
+debug = ARGUMENTS.get('debug','')
+warnings = ARGUMENTS.get('warnings','')
+sanitize = ARGUMENTS.get('sanitize','')
+cray = ARGUMENTS.get('cray','')
+missing_pfft_r2r = ARGUMENTS.get('missing_pfft_r2r','')
+tridiagonal_tests = ARGUMENTS.get('tridiagonal_tests','')
+
+def from_env(s):
+  try:
+    env.Append(ENV = {s : os.environ[s]})
+  except:
+    pass
+   
+
+if str(comp)=='sun':
+  env = Environment(tools=['link','sunf90','sunf95','suncc','sunc++'])
+elif str(comp)=='intel':
+  env = Environment(tools=['default','ifort','intelc'], CC='icx', CXX='icpx', FC='ifx', F90='ifx', FORTRAN='ifx', LINK='ifx')
+elif str(comp)=='cray':
+  env = Environment()
+else:
+  env = Environment()
+
+env.Append(ENV=os.environ)
+
+
+#HACK for some computers setting only LD_LIBRARY_PATH
+try:
+  env.Append(ENV = {'LIBRARY_PATH' : os.environ['LD_LIBRARY_PATH']})
+except:
+  pass
+
+try:
+  fc = os.environ['FC']
+  if len(fc)>0:
+    env.Replace(F90 = fc, FORTRAN=fc, LINK=fc)
+except:
+  pass
+ 
+try:
+  cc = os.environ['CC']
+  if len(cc)>0:
+    env.Replace(CC = cc)
+except KeyError:
+  pass
+
+try:
+  cxx = os.environ['CXX']
+  if len(cxx)>0:
+    env.Replace(CXX = cxx)
+except KeyError:
+  pass
+
+if str(mpi)=='yes':
+  if str(comp)=='intel':
+    env.Replace(LINK = 'mpiifx', F90='mpiifx', CC='mpiicx')
+  elif str(comp)=='cray':
+    pass
+  else:
+    env.Replace(LINK = 'mpif90', F90='mpif90', CC='mpicc')
+  env.Append(F90FLAGS=' -DMPI')
+  env.Append(CFLAGS=' -DMPI')
+else:
+  pass
+
+if (mpi=='yes') and (not openmp=='yes'):
+  openmp = 'no'
+
+if str(comp)=='sun':
+  if str(openmp)=='no':
+    omp_flag = ''
+  else:
+    omp_flag = ' -openmp'
+  env.Append(F90FLAGS='-fpp -xpp=cpp -g -fast -fPIC -DNO_CONTIGUOUS')
+  env.Replace(SHF90FLAGS=['$F90FLAGS','-fPIC'])
+  env.Replace(SHLINKFLAGS=['$LINKFLAGS', '-G'])
+  comp_dir='sun'
+  
+  if debug=='yes':
+    debug_flag = ' -C'
+  else:
+    debug_flag = ''
+    
+  env.Append(FORTRANMODDIRPREFIX = '-moddir=')
+  env.Append(INCPREFIX = '-M')
+  
+  fortran_libs = []
+ 
+elif str(comp)=='intel':
+  if str(openmp)=='no':
+    omp_flag = ''
+  else:
+    omp_flag = ' -qopenmp'
+  env.Append(F90FLAGS='-cpp -g -O3')
+  comp_dir='intel'
+  
+  if debug=='yes':
+    debug_flag = ' -check all,noarg_temp_created -traceback'
+  else:
+    debug_flag = ''
+    
+  fortran_libs = ['ifcore','ifcoremt']
+  
+else:
+  env.Append(F90FLAGS='-cpp -g -O3 -fbacktrace')
+
+  if warnings=='yes':
+    env.Append(F90FLAGS='-Wall -Wsurprising -Wno-unused-function -Wno-unused-dummy-argument')
+   
+  if str(openmp)=='no':
+    omp_flag = ''
+  else:
+    omp_flag = ' -fopenmp'
+  comp_dir='gcc'
+  
+  if debug=='yes':
+    debug_flag = ' -fcheck=bounds,pointer -ffpe-trap=zero,overflow,invalid'
+  else:
+    debug_flag = ''
+
+  if sanitize=='yes':
+    debug_flag = debug_flag + ' -fsanitize=undefined,address,null -fbacktrace'
+  else:
+    sanitize_flag = debug_flag + ''
+
+
+  if '-J' not in env['FORTRANMODDIRPREFIX']:
+    env.Replace(FORTRANMODDIRPREFIX = '-J')
+  
+  fortran_libs = ['gfortran']
+
+
+env.Append(F90FLAGS=omp_flag+debug_flag)
+env.Append(F90PATH = ['${TARGET.dir}'])
+  
+
+if str(prec)=='dp':
+  prec_dir = 'dp'  
+  env.Append(F90FLAGS=' -DDPREC')
+else:
+  prec_dir = 'sp'
+  
+  
+if cray=='yes':
+  env.Replace(CC='cc',CXX='CC',F90='ftn')
+  env.Replace(LINK='ftn')
+
+  
+missing_pfft = str(missing_pfft_r2r)=='yes'
+if missing_pfft:
+  env.Append(F90FLAGS=' -DMISSING_PFFT_R2R')
+  env.Append(CFLAGS=' -DMISSING_PFFT_R2R')
+    
+
+
+env.Append(FORTRANMODDIR = '${TARGET.dir}')
+
+objs = env.SharedObject(target='../bin/'+comp_dir+'/precisions', source='precisions.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/parameters', source='parameters.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/customfftw3', source='customfftw3.f90')
+if missing_pfft:
+  objs += env.SharedObject(target='../bin/'+comp_dir+'/missing_pfft', source='missing_pfft.c')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/custompfft', source='custompfft.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/fft', source='fft.f90')
+Depends(objs[-1], 'fft-inc.f90')
+Depends(objs[-1], 'plan_new-inc.f90')
+Depends(objs[-1], 'allocate_fftw-inc.f90')
+Depends(objs[-1], objs[3])
+objs += env.SharedObject(target='../bin/'+comp_dir+'/poisfft', source='poisfft.f90')
+Depends(objs[-1], 'poisfft-solvers-inc.f90')
+Depends(objs[-1], 'poisfft-inc.f90')
+Depends(objs[-1], 'loop_nest_3d.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/main', source='main.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/f_mpi_comm_c2f', source='f_mpi_comm_c2f.c')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/c_binding', source='c_binding.f90')
+Depends(objs[-1], 'c_new-inc.f90')
+Depends(objs[-1], 'c_execute-inc.f90')
+objs += env.SharedObject(target='../bin/'+comp_dir+'/c_binding_c', source='c_binding.c')
+
+
+objs = list(filter(lambda o: str(o)[-4:] != '.mod', objs))
+
+sobjs = env.Object(target='../bin/'+comp_dir+'/precisions', source='precisions.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/parameters', source='parameters.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/customfftw3', source='customfftw3.f90')
+if missing_pfft:
+  sobjs += env.Object(target='../bin/'+comp_dir+'/missing_pfft', source='missing_pfft.c')
+sobjs += env.Object(target='../bin/'+comp_dir+'/custompfft', source='custompfft.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/fft', source='fft.f90')
+Depends(sobjs[-1], 'fft-inc.f90')
+Depends(sobjs[-1], 'plan_new-inc.f90')
+Depends(objs[-1], 'allocate_fftw-inc.f90')
+Depends(sobjs[-1], sobjs[3])
+sobjs += env.Object(target='../bin/'+comp_dir+'/poisfft', source='poisfft.f90')
+Depends(sobjs[-1], 'poisfft-solvers-inc.f90')
+Depends(sobjs[-1], 'poisfft-solvers-nonuniform_z-inc.f90')
+Depends(sobjs[-1], 'poisfft-inc.f90')
+Depends(sobjs[-1], 'loop_nest_3d.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/main', source='main.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/f_mpi_comm_c2f', source='f_mpi_comm_c2f.c')
+sobjs += env.Object(target='../bin/'+comp_dir+'/c_binding', source='c_binding.f90')
+Depends(sobjs[-1], 'c_new-inc.f90')
+Depends(sobjs[-1], 'c_execute-inc.f90')
+sobjs += env.Object(target='../bin/'+comp_dir+'/c_binding_c', source='c_binding.c')
+
+sobjs = list(filter(lambda o: str(o)[-4:] != '.mod', sobjs))
+
+lib = env.SharedLibrary(target='../lib/'+comp_dir+'/libpoisfft', source = objs)
+static_lib = env.StaticLibrary(target='../lib/'+comp_dir+'/libpoisfft', source = sobjs)
+
+env.Alias('lib',lib)
+env.Alias('static_lib',static_lib)
+
+if str(mpi)=='yes':
+    if (tridiagonal_tests=='yes'):
+      suffix = '_nonuniform_z'
+    else:
+      suffix = ''
+      
+    testobj = env.StaticObject(F90FLAGS='-O3 -g',target='../bin/'+comp_dir+'/testmpi'+suffix, source='testmpi'+suffix+'.f90')
+    testobj = list(filter(lambda o: str(o)[-4:] != '.mod', testobj))
+    
+    libs = ['fftw3_mpi','fftw3f_mpi','fftw3','fftw3f','fftw3_omp','fftw3f_omp']
+    if openmp=='yes':
+      libs = ['pfft_omp','pfftf_omp'] + libs
+    else:
+      libs = ['pfft','pfftf'] + libs
+    test = env.Program(LINKFLAGS=omp_flag+debug_flag, LIBS=libs,target='../bin/'+comp_dir+'/testmpi'+suffix, source = sobjs + testobj)
+    env.Alias('test',['../bin/'+comp_dir+'/testmpi'+suffix])
+
+else:
+    #Intel Fortran 14 causes infinite compilation for -O3 here. It is not very important to optimize the main test program.
+    if (tridiagonal_tests=='yes'):
+      suffix = '_nonuniform_z'
+    else:
+      suffix = ''
+    
+    testobj = env.StaticObject(F90FLAGS='-O2 -g',target='../bin/'+comp_dir+'/testpoisson'+suffix, source='testpoisson'+suffix+'.f90')
+    testobj = list(filter(lambda o: str(o)[-4:] != '.mod', testobj))
+    
+    ctestobj = env.StaticObject(CFLAGS='-O3 -g'+debug_flag,target='../bin/'+comp_dir+'/c_testpoisson', source='testpoisson.c')
+    
+    cctestobj = env.StaticObject(CXXFLAGS='-O3 -g'+debug_flag,target='../bin/'+comp_dir+'/cc_testpoisson', source='testpoisson.cc')
+    
+    test = env.Program(LINKFLAGS=omp_flag+debug_flag, LIBS=['fftw3','fftw3f','fftw3_omp'],target='../bin/'+comp_dir+'/testpoisson'+suffix, source = sobjs + testobj)
+    test += env.Program(LINK=env['CC'],LINKFLAGS=omp_flag+debug_flag, LIBS=['m','fftw3','fftw3f','fftw3_omp']+fortran_libs,target='../bin/'+comp_dir+'/c_testpoisson', source = sobjs + ctestobj)
+    test += env.Program(LINK=env['CXX'], LINKFLAGS=omp_flag+debug_flag, LIBS=['m','fftw3','fftw3f','fftw3_omp']+fortran_libs,target='../bin/'+comp_dir+'/cc_testpoisson', source = sobjs + cctestobj)
+    env.Alias('test',['../bin/'+comp_dir+'/testpoisson'+suffix,
+                      '../bin/'+comp_dir+'/c_testpoisson',
+                      '../bin/'+comp_dir+'/cc_testpoisson'])
+
+Default(lib)
