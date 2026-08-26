@@ -109,4 +109,19 @@ constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, L
   grid.foreach_a(FOREACH_FUNC { dp(i, j) -= avg_dp; });
 }
 
+// =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr void correct_velocity(const Grid<Float, LAYOUT>& grid,
+                                const Scalar<Float, LAYOUT> dp,
+                                Float rho,
+                                Float dt,
+                                FaceVector<Float, LAYOUT> u,
+                                Scalar<Float, LAYOUT> p) {
+  grid.foreach_a(FOREACH_FUNC { p(i, j) += dp(i, j); });
+  grid.template foreach_face_i<Dimension::X>(
+      FOREACH_FUNC { u.x(i, j) -= (dt / rho) * (dp(i, j) - dp(i - 1, j)) / grid.dx(); });
+  grid.template foreach_face_i<Dimension::Y>(
+      FOREACH_FUNC { u.y(i, j) -= (dt / rho) * (dp(i, j) - dp(i, j - 1)) / grid.dy(); });
+}
+
 #endif  // NS_FVM_MAC_HPP_

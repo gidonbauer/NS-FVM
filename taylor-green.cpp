@@ -1,4 +1,5 @@
 #include <charconv>
+#include <numbers>
 
 #include <poisfft.h>
 
@@ -23,34 +24,24 @@ constexpr Float y_min    = 0.0;
 constexpr Float y_max    = 1.0;
 
 constexpr Float rho      = 1.0;
-constexpr Float mu       = 1.0;
-constexpr Float Uavg     = 1.0;
+constexpr Float mu       = 1e-2;
 
-constexpr Float CFL      = 0.7;
-constexpr Float tend     = 5e-2;
+constexpr Float CFL      = 0.5;
+constexpr Float tend     = 1.0;
 constexpr Float dt_write = tend / 100.0;
 
 // =================================================================================================
-constexpr auto inlet_u(Float y) -> Float {
-  constexpr Float H = y_max - y_min;
-  const Float s     = (y - y_min) / H;
-  return Uavg * 6.0 * s * (1.0 - s);
+auto F(Float t) -> Float {
+  constexpr auto pi = std::numbers::pi_v<Float>;
+  return std::exp(-2.0 * (mu / rho) * (2.0 * pi) * (2.0 * pi) * t);
 }
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
-void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> u) {
-  // Rescale the outflow so that it matches the inflow exactly (global continuity).
-  Float Qin  = 0.0;
-  Float Qout = 0.0;
-  for (Index j = 0; j < u.x.ny(); ++j) {
-    Qin  += u.x(0, j) * grid.dy();
-    Qout += u.x(u.x.nx() - 1, j) * grid.dy();
-  }
-  const Float corr = (Qin - Qout) / (static_cast<Float>(u.x.ny()) * grid.dy());
-  for (Index j = 0; j < u.x.ny(); ++j) {
-    u.x(u.x.nx() - 1, j) += corr;
-  }
+auto u_analytical(Float x, Float y, Float t) -> Float {
+  constexpr auto pi = std::numbers::pi_v<Float>;
+  return std::sin(2.0 * pi * x) * std::cos(2.0 * pi * y) * F(t);
+}
+auto v_analytical(Float x, Float y, Float t) -> Float {
+  constexpr auto pi = std::numbers::pi_v<Float>;
+  return -std::cos(2.0 * pi * x) * std::sin(2.0 * pi * y) * F(t);
 }
 
 // =================================================================================================
@@ -99,17 +90,16 @@ auto main(int argc, char** argv) -> int {
   // = Linear solver ===============================================================================
 
   const VelocityBConds<Float> bconds{
-      .left   = Dirichlet<Float>{.U = [](Float y, Float /*t*/) { return inlet_u(y); }, .V = 0.0},
-      .right  = Neumann{.clipped = true},
-      .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
-      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Periodic{},
+      .top    = Periodic{},
   };
 
-  // Initial condition: the analytic fully-developed profile.
-  grid.foreach_face_i<Dimension::X>(FOREACH_FUNC {
-    u.x(i, j) = 0.0;  // inlet_u(grid.ym(j));
-  });
-  grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
+  grid.foreach_face_i<Dimension::X>(
+      FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
+  grid.foreach_face_i<Dimension::Y>(
+      FOREACH_FUNC { u.y(i, j) = v_analytical(grid.xm(i), grid.y(j), 0.0); });
   apply_velocity_bconds(grid, bconds, u);
   interpolate(grid, u, ui);
 
@@ -153,7 +143,6 @@ auto main(int argc, char** argv) -> int {
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, bconds, u);
-      correct_outflow(grid, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);
@@ -163,7 +152,7 @@ auto main(int argc, char** argv) -> int {
       shift_dp_to_zero(grid, dp);
 
       // 3) Project
-      correct_velocity(grid, dp, rho, dt, u, p);
+      correct_velocity(grid, dp, rho, local_dt, u, p);
     }
 
     interpolate(grid, u, ui);
@@ -185,6 +174,20 @@ auto main(int argc, char** argv) -> int {
     }
     monitor.write();
   }
+
+  Float L1_u = 0.0;
+  grid.foreach_face_i<Dimension::X, Exec::SERIAL>([=, &L1_u](Index i, Index j) {
+    const auto u_exp  = u_analytical(grid.x(i), grid.ym(j), t);
+    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv();
+  });
+  Float L1_v = 0.0;
+  grid.foreach_face_i<Dimension::Y, Exec::SERIAL>([=, &L1_v](Index i, Index j) {
+    const auto v_exp  = v_analytical(grid.xm(i), grid.y(j), t);
+    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv();
+  });
+
+  Igor::Info("L1(u) = {:.8e}", L1_u);
+  Igor::Info("L1(v) = {:.8e}", L1_v);
 
   Igor::Info("Ok.");
 }
