@@ -163,7 +163,7 @@ auto main(int argc, char** argv) -> int {
       shift_dp_to_zero(grid, dp);
 
       // 3) Project
-      correct_velocity(grid, dp, rho, dt, u, p);
+      correct_velocity(grid, dp, rho, local_dt, u, p);
     }
 
     interpolate(grid, u, ui);
