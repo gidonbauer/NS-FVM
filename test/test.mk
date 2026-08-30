@@ -1,4 +1,5 @@
-TESTS = Taylor-Green-8 Taylor-Green-16 Taylor-Green-64 Taylor-Green-100
+TESTS = Taylor-Green-8 Taylor-Green-16 Taylor-Green-64 Taylor-Green-100 \
+        Gauss-Seidel-32 Gauss-Seidel-64 Gauss-Seidel-128
 
 # ------------------------------------------------------------------------------
 strip_digits = ${subst 9,,${subst 8,,${subst 7,,${subst 6,,${subst 5,,${subst 4,,${subst 3,,${subst 2,,${subst 1,,${subst 0,,$1}}}}}}}}}}
