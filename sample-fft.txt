@@ -1,0 +1,305 @@
+Analysis of sampling taylor-green (pid 4715) every 1 millisecond
+Process:         taylor-green [4715]
+Path:            /Users/USER/Documents/*/taylor-green
+Load Address:    0x10430c000
+Identifier:      taylor-green
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  zsh [74741]
+Target Type:     live task
+
+Date/Time:       2026-08-31 19:26:33.160 +0200
+Launch Time:     2026-08-31 19:26:33.125 +0200
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+----
+
+Call graph:
+    444 Thread_2738577   DispatchQueue_1: com.apple.main-thread  (serial)
+      443 start  (in dyld) + 6992  [0x18efc44e4]
+      + 189 main  (in taylor-green) + 7008  [0x10430e900]
+      + ! 189 poisfft_solver2d_execute  (in libpoisfft.dylib) + 176  [0x104403820]  c_execute-inc.f90:29
+      + !   189 __poisfft_dp_MOD_poisfft_solver2d__execute  (in libpoisfft.dylib) + 852  [0x1043f2174]  poisfft-inc.f90:1390
+      + !     73 ???  (in <unknown binary>)  [0x1c0]
+      + !     : 73 r2cf_128  (in libfftw3.3.dylib) + 1468,2400,...  [0x104502cc4,0x104503068,...]
+      + !     42 apply_re10  (in libfftw3.3.dylib) + 200,384,...  [0x104541c10,0x104541cc8,...]
+      + !     23 apply_re01  (in libfftw3.3.dylib) + 260,224,...  [0x104541a38,0x104541a14,...]
+      + !     16 apply_r2hc  (in libfftw3.3.dylib) + 56  [0x1044f6ce4]
+      + !     : 16 r2cf_128  (in libfftw3.3.dylib) + 248,132,...  [0x104502800,0x10450278c,...]
+      + !     13 __poisfft_dp_MOD_poisfft_solver2d_fullneumann  (in libpoisfft.dylib) + 812  [0x1043f003c]  poisfft-solvers-inc.f90:240
+      + !     11 __poisfft_dp_MOD_poisfft_solver2d_fullneumann  (in libpoisfft.dylib) + 560,512,...  [0x1043eff40,0x1043eff10,...]  poisfft-solvers-inc.f90:234
+      + !     9 __poisfft_dp_MOD_poisfft_solver2d_fullneumann  (in libpoisfft.dylib) + 192  [0x1043efdd0]  poisfft-solvers-inc.f90:224
+      + !     2 apply_r2hc  (in libfftw3.3.dylib) + 44,56  [0x1044f6cd8,0x1044f6ce4]
+      + 123 main  (in taylor-green) + 7764  [0x10430ebf4]
+      + ! 43 VTKWriter<double, (Layout)0>::write(double)  (in taylor-green) + 440  [0x104310174]
+      + ! : 43 VTKWriter<double, (Layout)0>::write_header(std::basic_ofstream<char>&, double)  (in taylor-green) + 308  [0x104320678]
+      + ! :   17 VTKWriter<double, (Layout)0>::write_points_cartesian(std::basic_ofstream<char>&)  (in taylor-green) + 184  [0x104320f54]
+      + ! :   | 8 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! :   | + 5 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! :   | + ! 5 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! :   | + !   5 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! :   | + !     5 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! :   | + !       5 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! :   | + !         5 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! :   | + !           5 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! :   | + !             5 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! :   | + 3 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 164,16  [0x18f2a217c,0x18f2a20e8]
+      + ! :   | 5 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 116,52,...  [0x18f2a80ac,0x18f2a806c,...]
+      + ! :   | 2 DYLD-STUB$$std::basic_ostream<char>::write(char const*, long)  (in taylor-green) + 4  [0x10432c02c]
+      + ! :   | 1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+      + ! :   | + 1 std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 48  [0x18f2a21d8]
+      + ! :   | 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 200  [0x18f2a21a0]
+      + ! :   12 VTKWriter<double, (Layout)0>::write_points_cartesian(std::basic_ofstream<char>&)  (in taylor-green) + 156  [0x104320f38]
+      + ! :   | 8 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! :   | + 6 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! :   | + ! 6 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! :   | + !   6 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! :   | + !     6 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! :   | + !       6 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! :   | + !         6 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! :   | + !           6 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! :   | + !             6 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! :   | + 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! :   | + ! 1 _platform_memmove  (in libsystem_platform.dylib) + 428  [0x18f39950c]
+      + ! :   | + 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 48  [0x18f2a2108]
+      + ! :   | 2 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+      + ! :   | + 2 std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 48  [0x18f2a21d8]
+      + ! :   | 1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 116  [0x18f2a80ac]
+      + ! :   | 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 200  [0x18f2a21a0]
+      + ! :   10 VTKWriter<double, (Layout)0>::write_points_cartesian(std::basic_ofstream<char>&)  (in taylor-green) + 204  [0x104320f68]
+      + ! :   | 10 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! :   |   8 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! :   |   + 8 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! :   |   +   8 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! :   |   +     8 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! :   |   +       8 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! :   |   +         8 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! :   |   +           8 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! :   |   +             8 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! :   |   2 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! :   |     2 _platform_memmove  (in libsystem_platform.dylib) + 428,460  [0x18f39950c,0x18f39952c]
+      + ! :   3 VTKWriter<double, (Layout)0>::write_points_cartesian(std::basic_ofstream<char>&)  (in taylor-green) + 204,136  [0x104320f68,0x104320f24]
+      + ! :   1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 96  [0x18f2a8098]
+      + ! 42 VTKWriter<double, (Layout)0>::write(double)  (in taylor-green) + 948  [0x104310370]
+      + ! : 17 VTKWriter<double, (Layout)0>::write_vector_cartesian(std::basic_ofstream<char>&, Vector<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 272  [0x104320948]
+      + ! : | 13 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! : | + 8 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! : | + ! 8 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! : | + !   8 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! : | + !     8 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! : | + !       8 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! : | + !         8 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! : | + !           8 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! : | + !             8 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! : | + 3 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 164,48  [0x18f2a217c,0x18f2a2108]
+      + ! : | + 2 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! : | +   2 DYLD-STUB$$memmove  (in libc++.1.dylib) + 12  [0x18f3047c4]
+      + ! : | 2 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+      + ! : | + 2 std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 48  [0x18f2a21d8]
+      + ! : | 1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 176  [0x18f2a80e8]
+      + ! : | 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 200  [0x18f2a21a0]
+      + ! : 13 VTKWriter<double, (Layout)0>::write_vector_cartesian(std::basic_ofstream<char>&, Vector<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 220  [0x104320914]
+      + ! : | 7 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! : | + 3 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! : | + ! 3 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! : | + !   3 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! : | + !     3 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! : | + !       3 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! : | + !         3 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! : | + !           3 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! : | + !             3 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! : | + 2 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! : | + ! 2 _platform_memmove  (in libsystem_platform.dylib) + 12,460  [0x18f39936c,0x18f39952c]
+      + ! : | + 2 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 60  [0x18f2a2114]
+      + ! : | 5 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+      + ! : | + 5 std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 48,24  [0x18f2a21d8,0x18f2a21c0]
+      + ! : | 1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 60  [0x18f2a8074]
+      + ! : 11 VTKWriter<double, (Layout)0>::write_vector_cartesian(std::basic_ofstream<char>&, Vector<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 292  [0x10432095c]
+      + ! : | 6 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! : | + 4 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! : | + ! 4 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! : | + !   4 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! : | + !     4 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! : | + !       4 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! : | + !         4 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! : | + !           4 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! : | + !             4 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! : | + 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! : | + ! 1 _platform_memmove  (in libsystem_platform.dylib) + 428  [0x18f39950c]
+      + ! : | + 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 48  [0x18f2a2108]
+      + ! : | 3 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+      + ! : | + 3 std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 48  [0x18f2a21d8]
+      + ! : | 1 DYLD-STUB$$std::basic_ostream<char>::write(char const*, long)  (in taylor-green) + 4  [0x10432c02c]
+      + ! : | 1 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 176  [0x18f2a80e8]
+      + ! : 1 VTKWriter<double, (Layout)0>::write_vector_cartesian(std::basic_ofstream<char>&, Vector<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 200  [0x104320900]
+      + ! 31 VTKWriter<double, (Layout)0>::write(double)  (in taylor-green) + 740  [0x1043102a0]
+      + ! : 29 VTKWriter<double, (Layout)0>::write_scalar(std::basic_ofstream<char>&, Scalar<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 240  [0x1043207dc]
+      + ! : | 24 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+      + ! : | + 19 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+      + ! : | + ! 19 std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+      + ! : | + !   19 fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+      + ! : | + !     18 __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+      + ! : | + !     : 18 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + ! : | + !     :   18 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + ! : | + !     :     18 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + ! : | + !     :       18 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + ! : | + !     1 __sfvwrite  (in libsystem_c.dylib) + 208  [0x18f221cac]
+      + ! : | + !       1 _platform_memmove  (in libsystem_platform.dylib) + 180  [0x18f399414]
+      + ! : | + 4 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 164  [0x18f2a217c]
+      + ! : | + 1 std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+      + ! : | +   1 _platform_memmove  (in libsystem_platform.dylib) + 460  [0x18f39952c]
+      + ! : | 5 std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 36,60,...  [0x18f2a805c,0x18f2a8074,...]
+      + ! : 2 VTKWriter<double, (Layout)0>::write_scalar(std::basic_ofstream<char>&, Scalar<double, (Layout)0>, std::basic_string<char> const&)  (in taylor-green) + 220,256  [0x1043207c8,0x1043207ec]
+      + ! 5 VTKWriter<double, (Layout)0>::write(double)  (in taylor-green) + 340  [0x104310110]
+      + ! : 5 std::basic_ofstream<char>::basic_ofstream(std::basic_string<char> const&, unsigned int)  (in taylor-green) + 164  [0x1043204c8]
+      + ! :   5 std::basic_filebuf<char>::open(char const*, unsigned int)  (in libc++.1.dylib) + 84  [0x18f2d4a38]
+      + ! :     5 fopen  (in libsystem_c.dylib) + 220  [0x18f22d7bc]
+      + ! :       5 open$NOCANCEL  (in libsystem_kernel.dylib) + 64  [0x18f360c64]
+      + ! :         5 __open_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34c948]
+      + ! 2 VTKWriter<double, (Layout)0>::write(double)  (in taylor-green) + 564  [0x1043101f0]
+      + !   2 std::basic_filebuf<char>::~basic_filebuf()  (in libc++.1.dylib) + 52  [0x18f2d4f90]
+      + !     2 std::basic_filebuf<char>::close()  (in libc++.1.dylib) + 80  [0x18f2d5078]
+      + !       2 fclose  (in libsystem_c.dylib) + 216  [0x18f23b314]
+      + !         2 __close_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34d584]
+      + 34 main  (in taylor-green) + 6328  [0x10430e658]
+      + ! 34 void calc_flux<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>, double, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green) + 160  [0x104311064]
+      + !   34 Cartesian::calc_flux<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>, double, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green) + 1756,2724,...  [0x104321998,0x104321d60,...]
+      + 27 main  (in taylor-green) + 7168  [0x10430e9a0]
+      + ! 27 Cartesian::correct_velocity<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>, double, double, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green) + 1456,292,...  [0x104325ee0,0x104325a54,...]
+      + 24 main  (in taylor-green) + 6508  [0x10430e70c]
+      + ! 24 void update_u<double, (Layout)0>(Grid<double, (Layout)0> const&, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>, FaceVector<double, (Layout)0>, FaceVector<double, (Layout)0>)  (in taylor-green) + 156  [0x1043111b8]
+      + !   24 Cartesian::update_u<double, (Layout)0>(Grid<double, (Layout)0> const&, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>, FaceVector<double, (Layout)0>, FaceVector<double, (Layout)0>)  (in taylor-green) + 772,1644,...  [0x104322db4,0x10432311c,...]
+      + 10 main  (in taylor-green) + 6608  [0x10430e770]
+      + ! 5 Cartesian::calc_div<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green) + 584,600,...  [0x104323d74,0x104323d84,...]
+      + ! 5 main  (in taylor-green) + 6832  [0x10430e850]
+      + 8 main  (in taylor-green) + 7220  [0x10430e9d4]
+      + ! 8 void interpolate<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Vector<double, (Layout)0>)  (in taylor-green) + 752,404,...  [0x10430fb20,0x10430f9c4,...]
+      + 5 main  (in taylor-green) + 5292  [0x10430e24c]
+      + ! 4 main  (in taylor-green) + 5548,5560,...  [0x10430e34c,0x10430e358,...]
+      + ! 1 Monitor<double>::write()  (in taylor-green) + 812  [0x104310f04]
+      + !   1 std::basic_ostream<char>::flush()  (in libc++.1.dylib) + 152  [0x18f2a6460]
+      + !     1 std::basic_filebuf<char>::sync()  (in libc++.1.dylib) + 256  [0x18f2d6098]
+      + !       1 fflush  (in libsystem_c.dylib) + 112  [0x18f22d1a4]
+      + !         1 __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+      + !           1 _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+      + !             1 __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+      + !               1 __write_nocancel  (in libsystem_kernel.dylib) + 8  [0x18f34fbe4]
+      + 5 main  (in taylor-green) + 7436  [0x10430eaac]
+      + ! 5 Stats<double> stats<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green) + 1172,1116,...  [0x104310894,0x10431085c,...]
+      + 4 main  (in taylor-green) + 7488  [0x10430eae0]
+      + ! 4 Stats<double> stats<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green) + 1172,1148,...  [0x104310894,0x10431087c,...]
+      + 3 main  (in taylor-green) + 5936  [0x10430e4d0]
+      + ! 3 _platform_memmove  (in libsystem_platform.dylib) + 88  [0x18f3993b8]
+      + 3 main  (in taylor-green) + 7540  [0x10430eb14]
+      + ! 3 Stats<double> stats<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green) + 1144,1172  [0x104310878,0x104310894]
+      + 2 main  (in taylor-green) + 7284  [0x10430ea14]
+      + ! 2 Cartesian::calc_div<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green) + 584,684  [0x104323d74,0x104323dd8]
+      + 2 main  (in taylor-green) + 7384  [0x10430ea78]
+      + ! 2 Stats<double> stats<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green) + 1116  [0x10431085c]
+      + 2 void apply_neumann_bconds<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green) + 540,584  [0x1043115dc,0x104311608]
+      + 1 main  (in taylor-green) + 5972  [0x10430e4f4]
+      + ! 1 _platform_memmove  (in libsystem_platform.dylib) + 88  [0x18f3993b8]
+      + 1 main  (in taylor-green) + 6544  [0x10430e730]
+      +   1 void apply_velocity_bconds<double, (Layout)0>(Grid<double, (Layout)0> const&, VelocityBConds<double> const&, FaceVector<double, (Layout)0>, double)  (in taylor-green) + 200  [0x10430f7e4]
+      +     1 decltype(auto) std::__variant_detail::__visitation::__base::__dispatcher<2ul>::__dispatch[abi:nqe220108]<std::__variant_detail::__visitation::__variant::__value_visitor<void apply_velocity_bconds<double, (Layout)0>(Grid<double, (Layout)0> const&, VelocityBConds<double> const&, FaceVector<double, (Layout)0>, double)::'lambda1'(double&&)>&&, std::__variant_detail::__base<(std::__variant_detail::_Trait)0, Dirichlet<double>, Neumann, Periodic> const&>(double, std::__variant_detail::__base<(std::__variant_detail::_Trait)0, Dirichlet<double>, Neumann, Periodic> const&)  (in taylor-green) + 60  [0x10432aae0]
+      +       1 Periodic::apply_bottom<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, double) const  (in taylor-green) + 288  [0x10432aef4]
+      1 start  (in dyld) + 7040  [0x18efc4514]
+        1 dyld4::LibSystemHelpersWrapper::exit(int) const  (in dyld) + 164  [0x18efc45f0]
+          1 dyld4::LibSystemHelpers::exit(int) const  (in libdyld.dylib) + 20  [0x18ef8c2e4]
+            1 exit  (in libsystem_c.dylib) + 44  [0x18f2445dc]
+              1 __cxa_finalize_ranges  (in libsystem_c.dylib) + 416  [0x18f2447dc]
+                1 _gfortrani_close_units  (in libgfortran.5.dylib) + 48  [0x104a9a11c]
+                  1 close_unit_1  (in libgfortran.5.dylib) + 180  [0x104a99f80]
+                    1 _gfortrani_free_format_hash_table  (in libgfortran.5.dylib) + 0  [0x104a87820]
+
+Total number in stack (recursive counted multiple, when >=5):
+        9       std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 0  [0x18f2a20d8]
+        8       __sflush  (in libsystem_c.dylib) + 232  [0x18f22d304]
+        8       __swrite  (in libsystem_c.dylib) + 24  [0x18f24dba4]
+        8       __write_nocancel  (in libsystem_kernel.dylib) + 0  [0x18f34fbdc]
+        8       _platform_memmove  (in libsystem_platform.dylib) + 0  [0x18f399360]
+        8       _swrite  (in libsystem_c.dylib) + 108  [0x18f22f264]
+        7       __sfvwrite  (in libsystem_c.dylib) + 228  [0x18f221cc0]
+        7       fwrite  (in libsystem_c.dylib) + 300  [0x18f23d43c]
+        7       std::basic_filebuf<char>::overflow(int)  (in libc++.1.dylib) + 152  [0x18f2d5a70]
+        7       std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 0  [0x18f2a8038]
+        7       std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 196  [0x18f2a80fc]
+        7       std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 152  [0x18f2a2170]
+        6       std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib) + 92  [0x18f2a2134]
+        5       std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib) + 0  [0x18f2a21a8]
+        5       std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib) + 76  [0x18f2a8084]
+
+Sort by top of stack, same collapsed (when >= 5):
+        r2cf_128  (in libfftw3.3.dylib)        89
+        __write_nocancel  (in libsystem_kernel.dylib)        53
+        apply_re10  (in libfftw3.3.dylib)        42
+        Cartesian::calc_flux<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>, double, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green)        34
+        __poisfft_dp_MOD_poisfft_solver2d_fullneumann  (in libpoisfft.dylib)        33
+        Cartesian::correct_velocity<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>, double, double, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green)        27
+        Cartesian::update_u<double, (Layout)0>(Grid<double, (Layout)0> const&, double, Scalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, VertexScalar<double, (Layout)0>, Scalar<double, (Layout)0>, FaceVector<double, (Layout)0>, FaceVector<double, (Layout)0>)  (in taylor-green)        24
+        apply_re01  (in libfftw3.3.dylib)        23
+        std::basic_streambuf<char>::xsputn(char const*, long)  (in libc++.1.dylib)        17
+        std::basic_ostream<char>::write(char const*, long)  (in libc++.1.dylib)        15
+        Stats<double> stats<double, (Layout)0>(Grid<double, (Layout)0> const&, Scalar<double, (Layout)0>)  (in taylor-green)        14
+        std::basic_ostream<char>::sentry::~sentry()  (in libc++.1.dylib)        13
+        _platform_memmove  (in libsystem_platform.dylib)        12
+        main  (in taylor-green)        9
+        void interpolate<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Vector<double, (Layout)0>)  (in taylor-green)        8
+        Cartesian::calc_div<double, (Layout)0>(Grid<double, (Layout)0> const&, FaceVector<double, (Layout)0>, Scalar<double, (Layout)0>)  (in taylor-green)        7
+        __open_nocancel  (in libsystem_kernel.dylib)        5
+
+Binary Images:
+       0x10430c000 -        0x104331dbf +taylor-green (0) <C066CE67-4C3F-3DFD-910B-217829BF90EF> /Users/*/Documents/*/taylor-green
+       0x104380000 -        0x104394cdf +libgcc_s.1.1.dylib (0) <656CB908-3B92-3E77-A924-6CD29953987D> /opt/homebrew/*/libgcc_s.1.1.dylib
+       0x1043b8000 -        0x10440ec3f +libpoisfft.dylib (0) <DCDCDCDD-3F7C-3CDA-9D1A-E6E1DE29F79E> /Users/*/Documents/*/libpoisfft.dylib
+       0x104424000 -        0x1044616af +libquadmath.0.dylib (0) <48042A24-0CD0-3F87-ADD5-5E5756C27026> /opt/homebrew/*/libquadmath.0.dylib
+       0x1044d0000 -        0x10455754f +libfftw3.3.dylib (0) <EB87584E-6337-3B69-8F4E-E5BCC6A12530> /opt/homebrew/*/libfftw3.3.dylib
+       0x10457c000 -        0x104603487 +libfftw3f.3.dylib (0) <AF4D1E44-9599-3242-BFD7-EDDD49247E47> /opt/homebrew/*/libfftw3f.3.dylib
+       0x104974000 -        0x104afe0a7 +libgfortran.5.dylib (0) <0E3840F2-A55A-3830-9749-F6D1636C3520> /opt/homebrew/*/libgfortran.5.dylib
+       0x18ef1c000 -        0x18ef6eb4b  libobjc.A.dylib (951.7) <03BD9E32-CF0A-37B0-898A-3CE8DE06D842> /usr/lib/libobjc.A.dylib
+       0x18ef6f000 -        0x18efa3d58  libdyld.dylib (1387) <957F93B3-8805-39C7-9C51-EDD1715F550E> /usr/lib/system/libdyld.dylib
+       0x18efa4000 -        0x18f0574ff  dyld (1.0.0 - 1387) <74E52480-C2BD-3C8D-812D-95FE2B74A096> /usr/lib/dyld
+       0x18f058000 -        0x18f05b228  libsystem_blocks.dylib (96) <E0AC1231-27AA-3A13-8FAC-41D5802B1F3C> /usr/lib/system/libsystem_blocks.dylib
+       0x18f05c000 -        0x18f0b055f  libxpc.dylib (3102.160.5) <33E44C2D-D65E-37A6-B85F-1A4CF524A050> /usr/lib/system/libxpc.dylib
+       0x18f0b1000 -        0x18f0d19ff  libsystem_trace.dylib (1861.160.4) <93F1DD8C-6CD9-32B9-B222-D23DA5D161B4> /usr/lib/system/libsystem_trace.dylib
+       0x18f0d2000 -        0x18f1805f7  libcorecrypto.dylib (1922.160.10) <0642DDAD-4771-3C82-805C-E7C6701C1461> /usr/lib/system/libcorecrypto.dylib
+       0x18f181000 -        0x18f1d1257  libsystem_malloc.dylib (812.160.5) <D969A907-3E43-3951-9365-8C2DB3812E9D> /usr/lib/system/libsystem_malloc.dylib
+       0x18f1d2000 -        0x18f21923f  libdispatch.dylib (1542.160.2) <B2000CD5-F580-314A-A141-E036719D854E> /usr/lib/system/libdispatch.dylib
+       0x18f21a000 -        0x18f21cffb  libsystem_featureflags.dylib (103) <FEE12F9C-344B-33B3-8EDD-283580EF1C67> /usr/lib/system/libsystem_featureflags.dylib
+       0x18f21d000 -        0x18f29e1e7  libsystem_c.dylib (1752.160.4) <D77CEB62-AFF6-3CEC-BA9B-4F057FBE2EB5> /usr/lib/system/libsystem_c.dylib
+       0x18f29f000 -        0x18f32fae7  libc++.1.dylib (2100.43) <F0FD393C-15BC-3C75-A19D-897F7B225C78> /usr/lib/libc++.1.dylib
+       0x18f330000 -        0x18f34a75f  libc++abi.dylib (2100.43) <F38A9C58-22AB-3798-BBAE-8DCD9CC0CE27> /usr/lib/libc++abi.dylib
+       0x18f34b000 -        0x18f3882e7  libsystem_kernel.dylib (12377.161.14) <C6A4A4CB-92E6-3BAF-AAE0-E8306259209A> /usr/lib/system/libsystem_kernel.dylib
+       0x18f389000 -        0x18f395b3b  libsystem_pthread.dylib (539.100.4) <A373F0B0-9880-326A-88B4-DD8BE4E33072> /usr/lib/system/libsystem_pthread.dylib
+       0x18f396000 -        0x18f39e963  libsystem_platform.dylib (375.120.2) <EDB83A19-EC17-32DE-9350-6145970A85D6> /usr/lib/system/libsystem_platform.dylib
+       0x18f39f000 -        0x18f3ce6eb  libsystem_info.dylib (600) <9B5FB84B-31AD-3EA7-8F89-8C700D369DC8> /usr/lib/system/libsystem_info.dylib
+       0x19336c000 -        0x193375e5f  libsystem_darwin.dylib (1752.160.4) <8E07D22E-CE5A-38A0-B091-5B0338C326F5> /usr/lib/system/libsystem_darwin.dylib
+       0x1937d7000 -        0x1937e91b6  libsystem_notify.dylib (348.160.3) <15799128-6CBD-30D6-A2BB-B9D02B4470C0> /usr/lib/system/libsystem_notify.dylib
+       0x195aa8000 -        0x195ac2f7b  libsystem_networkextension.dylib (2226.161.1) <9C7B1EEB-47BE-3791-93A9-CFC693CB9417> /usr/lib/system/libsystem_networkextension.dylib
+       0x195b45000 -        0x195b5cfdf  libsystem_asl.dylib (406) <54439739-33EE-3273-839F-CBA67D7F5CB1> /usr/lib/system/libsystem_asl.dylib
+       0x1976fe000 -        0x197706387  libsystem_symptoms.dylib (2169.160.3) <229122B9-B8B1-3F2F-870E-8650AE3C4FB5> /usr/lib/system/libsystem_symptoms.dylib
+       0x19b9a3000 -        0x19b9db5b7  libsystem_containermanager.dylib (725.160.3) <14B2A47F-19C8-392F-8FDB-FE8AE375DD41> /usr/lib/system/libsystem_containermanager.dylib
+       0x19cdb5000 -        0x19cdb95d7  libsystem_configuration.dylib (1405.160.3) <D8D6280B-783D-3550-BDBA-2861AE40604F> /usr/lib/system/libsystem_configuration.dylib
+       0x19cdba000 -        0x19cdc099f  libsystem_sandbox.dylib (2680.160.6) <54688162-B50D-3D31-A1E8-7B9766D3530D> /usr/lib/system/libsystem_sandbox.dylib
+       0x19e415000 -        0x19e4181fb  libquarantine.dylib (196.160.2) <EEE5AADB-52E1-3C4C-881A-70405770B1F1> /usr/lib/system/libquarantine.dylib
+       0x19ebb4000 -        0x19ebbad03  libsystem_coreservices.dylib (191.5.1) <D4ACD2AC-5702-3C45-85A0-300B2C2D19E1> /usr/lib/system/libsystem_coreservices.dylib
+       0x19f143000 -        0x19f180a77  libsystem_m.dylib (3312.100.1) <B54FBE99-DB0B-32C7-ABDD-C2206DF606A4> /usr/lib/system/libsystem_m.dylib
+       0x19f182000 -        0x19f185527  libmacho.dylib (1387) <949131E5-BDA2-39BA-AA50-62651BB51802> /usr/lib/system/libmacho.dylib
+       0x19f19f000 -        0x19f1ac3a7  libcommonCrypto.dylib (600035) <3B110564-5278-3CB0-85F1-2CE8431FF935> /usr/lib/system/libcommonCrypto.dylib
+       0x19f1ad000 -        0x19f1b6ca3  libunwind.dylib (2100.2) <05FD0014-55B1-3B8A-A6BA-6C7A389C4123> /usr/lib/system/libunwind.dylib
+       0x19f1bf000 -        0x19f1c9bef  libcopyfile.dylib (240.160.2.0.1) <D0009B8A-8ECC-3D56-9206-7E1839707F93> /usr/lib/system/libcopyfile.dylib
+       0x19f1ca000 -        0x19f1cd987  libcompiler_rt.dylib (103.3) <6FB345CA-7F5C-3263-A23F-143F7539FD8A> /usr/lib/system/libcompiler_rt.dylib
+       0x19f1ce000 -        0x19f1d278b  libsystem_collections.dylib (1752.160.4) <C8160BD2-5941-3DC0-BB40-F8C2B8156EC4> /usr/lib/system/libsystem_collections.dylib
+       0x19f1d3000 -        0x19f1d64cf  libsystem_secinit.dylib (168.100.7) <ECABC024-8F02-374A-BB7E-29437CEA2ABD> /usr/lib/system/libsystem_secinit.dylib
+       0x19f1d7000 -        0x19f1d9bf7  libremovefile.dylib (85.100.6) <7460B5AE-469A-36A0-A7EC-6C7D69628E86> /usr/lib/system/libremovefile.dylib
+       0x19f1da000 -        0x19f1daf27  libkeymgr.dylib (31) <7E863FCA-F3FF-32C7-8A8C-F983E946AFC3> /usr/lib/system/libkeymgr.dylib
+       0x19f1db000 -        0x19f1e3e37  libsystem_dnssd.dylib (2881.160.4) <305F4398-E688-3384-B351-02D865EC8A04> /usr/lib/system/libsystem_dnssd.dylib
+       0x19f1e4000 -        0x19f1e909b  libcache.dylib (95) <9CD7B1E1-3E47-339C-A193-2392E3E0ED23> /usr/lib/system/libcache.dylib
+       0x19f1ea000 -        0x19f1ebce3  libSystem.B.dylib (1356) <4FED5EE2-5D3E-35B1-A170-9859C4B683BB> /usr/lib/libSystem.B.dylib
+       0x2931ad000 -        0x2931b4349  libRosetta.dylib (367.9) <0C7397C6-D747-31F2-8BC1-4096213BDE5C> /usr/lib/libRosetta.dylib
+       0x294dc0000 -        0x294dc3a4b  libsystem_darwindirectory.dylib (122) <971A4F65-493D-39F3-846D-0D33FA2769FD> /usr/lib/system/libsystem_darwindirectory.dylib
+       0x294dc4000 -        0x294dce39b  libsystem_eligibility.dylib (319.160.17) <750CA446-92EA-3A56-9A7B-CC0841686C50> /usr/lib/system/libsystem_eligibility.dylib
+       0x294dcf000 -        0x294dd688b  libsystem_sanitizers.dylib (26.1) <D88EC709-9AA8-3083-B22B-D3CB39678D71> /usr/lib/system/libsystem_sanitizers.dylib
+       0x294dd7000 -        0x294dd7bb7  libsystem_trial.dylib (474.2.18.2) <7194FF5B-A6C5-3D67-B00A-90209F10D603> /usr/lib/system/libsystem_trial.dylib
