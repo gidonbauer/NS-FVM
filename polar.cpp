@@ -160,7 +160,7 @@ auto main(int argc, char** argv) -> int {
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       // TODO: This is not correct for polar coordinates
       // solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
-      if (!solver.solve(dp, div)) {
+      if (!solver.solve(dp, div, 1e-3)) {
         Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
                    solver.res());

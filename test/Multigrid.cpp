@@ -36,7 +36,7 @@ constexpr auto L1error(const Grid<Float, LAYOUT>& grid,
                        const Scalar<Float, LAYOUT> f_pred) -> Float {
   Float L1 = 0.0;
   grid.template foreach_i<Exec::SERIAL>(
-      [=, &L1](Index i, Index j) { L1 += std::abs(f_true(i, j) - f_pred(i, j)) * grid.dv(); });
+      [=, &L1](Index i, Index j) { L1 += std::abs(f_true(i, j) - f_pred(i, j)) * grid.dv(i, j); });
   return L1;
 }
 

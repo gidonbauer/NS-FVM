@@ -23,10 +23,10 @@ class MultigridSolver {
   Index m_num_iter_post;
   Index m_num_iter_coarse;
   Index m_max_iter_coarse;
-  Index m_num_cycles                 = 0;
-  Float m_res                        = 0.0;
+  Index m_num_cycles                = 0;
+  Float m_res                       = 0.0;
 
-  static constexpr Float COARSE_RTOL = 1e-3;
+  static constexpr Float COARSE_TOL = 1e-3;
 
   // -----------------------------------------------------------------------------------------------
   constexpr void make_mean_free(const Grid& grid, Scalar s) const noexcept {
@@ -230,10 +230,9 @@ class MultigridSolver {
 
     // Check if we are at the coarsest level
     if (l + 1 == m_levels.size()) {
-      const Float res0 = residual(level);
       for (Index iter = 0; iter < m_max_iter_coarse; iter += m_num_iter_coarse) {
         smooth(level, m_num_iter_coarse);
-        if (residual(level) <= COARSE_RTOL * res0) { break; }
+        if (residual(level) <= COARSE_TOL) { break; }
       }
       return;
     }
@@ -295,7 +294,7 @@ class MultigridSolver {
     }
   }
 
-  constexpr auto solve(Scalar sol, Scalar rhs, Float rtol = 1e-3, Index max_iter = 100) -> bool {
+  constexpr auto solve(Scalar sol, Scalar rhs, Float tol = 1e-4, Index max_iter = 100) -> bool {
     const Level& fine = m_levels[0];
     IGOR_ASSERT(sol.nx() == fine.sol.nx() && sol.ny() == fine.sol.ny() &&
                     sol.nghost() == fine.sol.nghost(),
@@ -308,20 +307,7 @@ class MultigridSolver {
     copy(rhs, fine.rhs);
     make_mean_free(fine.grid, fine.rhs);
 
-    const auto fine_rhs = fine.rhs;
-    Float rhs_norm      = 0.0;
-    fine.grid.template foreach_i<Exec::SERIAL>([=, &rhs_norm](Index i, Index j) {
-      rhs_norm = std::max(rhs_norm, std::abs(fine_rhs(i, j)));
-    });
-    if (rhs_norm == 0.0) {
-      fill(sol, 0.0);
-      m_num_cycles = 0;
-      m_res        = 0.0;
-      return true;
-    }
-    const Float tol = rtol * rhs_norm;
-
-    bool converged  = false;
+    bool converged = false;
     for (m_num_cycles = 0; true; ++m_num_cycles) {
       m_res = residual(fine);
       if (m_res <= tol) {

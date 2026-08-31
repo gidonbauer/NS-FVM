@@ -1,11 +1,6 @@
 #include <charconv>
 #include <numbers>
 
-#include <poisfft.h>
-
-#include <Igor/Defer.hpp>
-#include <Igor/Logging.hpp>
-#include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
 #include "BoundaryConditions.hpp"
@@ -17,55 +12,38 @@
 #include "MultigridPoisson.hpp"
 #include "VTKWriter.hpp"
 
-using Float              = double;
+// = Setup =========================================================================================
+using Float               = double;
 
-constexpr Float x_min    = 0.0;
-constexpr Float x_max    = 1.0;
-constexpr Float y_min    = 0.0;
-constexpr Float y_max    = 1.0;
+constexpr Float theta_min = 0.0;
+constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
+constexpr Float r_min     = 1.0;
+constexpr Float r_max     = 2.0;
 
-constexpr Float rho      = 1.0;
-constexpr Float mu       = 1e-2;
+constexpr Float rho       = 1.0;
+constexpr Float mu        = 1.0;
+constexpr Float CFL       = 0.7;
+constexpr Float tend      = 1.5;
 
-constexpr Float CFL      = 0.5;
-constexpr Float tend     = 1.0;
-constexpr Float dt_write = tend / 100.0;
+constexpr Float dt_write  = tend / 100.0;
 
-// =================================================================================================
-auto F(Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::exp(-2.0 * (mu / rho) * (2.0 * pi) * (2.0 * pi) * t);
-}
-auto u_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::sin(2.0 * pi * x) * std::cos(2.0 * pi * y) * F(t);
-}
-auto v_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return -std::cos(2.0 * pi * x) * std::sin(2.0 * pi * y) * F(t);
-}
+constexpr Float U_wall    = 1.0;
+// = Setup =========================================================================================
 
 // =================================================================================================
+template <typename Float>
+constexpr auto uth_analytical(Float r) -> Float {
+  constexpr auto k1 = -1.0 / 3.0;
+  constexpr auto k2 = 4.0 / 3.0;
+  return k1 * r + k2 / r;
+}
+// =================================================================================================
+
 namespace Expected {
-constexpr std::array ns   = {16, 32, 64, 128, 256, 512};
-constexpr std::array L1us = {
-    1.89857866e-03,
-    4.84058581e-04,
-    1.17548585e-04,
-    2.92080456e-05,
-    7.29536607e-06,
-    1.82353585e-06,
-};
-static_assert(ns.size() == L1us.size());
-constexpr std::array L1vs = {
-    1.89862094e-03,
-    4.84100889e-04,
-    1.17550817e-04,
-    2.92081624e-05,
-    7.29537307e-06,
-    1.82353628e-06,
-};
-static_assert(ns.size() == L1vs.size());
+
+constexpr std::array ns  = {8, 16, 32, 64};
+constexpr std::array L1s = {2.55286075e-03, 6.39469170e-04, 1.59945813e-04, 3.99913626e-05};
+static_assert(ns.size() == L1s.size());
 
 template <std::size_t N>
 constexpr auto interp_n2(const std::array<Index, N>& xs, const std::array<double, N>& es, Index n)
@@ -99,13 +77,10 @@ constexpr auto interp_n2(const std::array<Index, N>& xs, const std::array<double
 
   return ((1.0 - t) * coeff(i) + t * coeff(i + 1)) / (nd * nd);
 }
-constexpr auto L1u(Index n) { return interp_n2(ns, L1us, n); }
-constexpr auto L1v(Index n) { return interp_n2(ns, L1vs, n); }
+constexpr auto L1(Index n) { return interp_n2(ns, L1s, n); }
 
 }  // namespace Expected
-// =================================================================================================
 
-// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -113,52 +88,62 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  Index N = 0;
-  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
+  Index NY = 0;
+  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), NY).ec != std::errc{} || NY <= 0) {
     Igor::Error("{}", usage_str);
     Igor::Error("  Invalid grid size `{}`", argv[1]);
     return 1;
   }
+  Index NX              = NY;
 
-  const auto output_dir = get_output_directory("test/output");
+  const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 1);
+  Grid<Float, Layout::C> grid(theta_min, theta_max, NX, r_min, r_max, NY, 1, Coordinates::POLAR);
 
-  auto u_old = grid.alloc_face_vector();
-  auto u     = grid.alloc_face_vector();
+  auto u_old      = grid.alloc_face_vector();
+  auto u          = grid.alloc_face_vector();
 
-  auto FUX   = grid.alloc_scalar();
-  auto FUY   = grid.alloc_vertex_scalar();
-  auto FVX   = grid.alloc_vertex_scalar();
-  auto FVY   = grid.alloc_scalar();
+  auto FUX        = grid.alloc_scalar();
+  auto FUY        = grid.alloc_vertex_scalar();
+  auto FVX        = grid.alloc_vertex_scalar();
+  auto FVY        = grid.alloc_scalar();
 
-  auto ui    = grid.alloc_vector();
-  auto p     = grid.alloc_scalar();  // Pressure (accumulated across steps).
-  auto dp    = grid.alloc_scalar();  // Pressure correction of the current step.
-  auto div   = grid.alloc_scalar();
+  auto ui         = grid.alloc_vector();
+  auto p          = grid.alloc_scalar();
+  auto dp         = grid.alloc_scalar();
+  auto div        = grid.alloc_scalar();
 
-  Float dt   = 0.0;
-  Float t    = 0.0;
+  auto ua         = grid.alloc_vector();
+
+  Float dt        = 0.0;
+  Float t         = 0.0;
+
+  Index mg_cycles = 0;
+  Float mg_res    = 0.0;
 
   MultigridSolver solver(grid);
 
   const VelocityBConds<Float> bconds{
       .left   = Periodic{},
       .right  = Periodic{},
-      .bottom = Periodic{},
-      .top    = Periodic{},
+      .bottom = Dirichlet<Float>{.U = U_wall, .V = 0.0},
+      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
   };
 
-  grid.foreach_face_i<Dimension::X>(
-      FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
-  grid.foreach_face_i<Dimension::Y>(
-      FOREACH_FUNC { u.y(i, j) = v_analytical(grid.xm(i), grid.y(j), 0.0); });
+  grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
+  grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
   apply_velocity_bconds(grid, bconds, u);
   interpolate(grid, u, ui);
 
+  grid.foreach_a(FOREACH_FUNC {
+    ua.x(i, j) = uth_analytical(grid.ym(j));
+    ua.y(i, j) = 0.0;
+  });
+
   VTKWriter writer(output_dir, grid);
   writer.add_field("u", ui);
+  writer.add_field("ua", ua);
   writer.add_field("p", p);
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
@@ -180,9 +165,11 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&u_max, "absmax(u)");
   monitor.add_variable(&v_max, "absmax(v)");
   monitor.add_variable(&div_max, "absmax(div)");
+  monitor.add_variable(&mg_res, "res(MG)");
+  monitor.add_variable(&mg_cycles, "cycles(MG)");
   monitor.write();
 
-  IGOR_TIME_SCOPE("Taylor-Green-" + std::to_string(N))
+  IGOR_TIME_SCOPE("Polar-Couette-" + std::to_string(NY))
   while (t < tend) {
     dt = adjust_dt(grid, u, rho, mu, CFL);
     dt = std::min({dt, dt_write, tend - t});
@@ -200,13 +187,14 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (!solver.solve(dp, div)) {
-        Igor::Warn("Multogrid solver did not converge after {} cycles: res = {:.8e}",
+      if (!solver.solve(dp, div, 1e-3)) {
+        Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
                    solver.res());
       }
+      mg_cycles = solver.num_cycles();
+      mg_res    = solver.res();
       apply_neumann_bconds(grid, dp);
-      // shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -232,27 +220,16 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1_u = 0.0;
-  grid.foreach_face_i<Dimension::X, Exec::SERIAL>([=, &L1_u](Index i, Index j) {
-    const auto u_exp  = u_analytical(grid.x(i), grid.ym(j), t);
-    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv(i, j);
-  });
-  Float L1_v = 0.0;
-  grid.foreach_face_i<Dimension::Y, Exec::SERIAL>([=, &L1_v](Index i, Index j) {
-    const auto v_exp  = v_analytical(grid.xm(i), grid.y(j), t);
-    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
-  });
-
-  if (L1_u > 1.1 * Expected::L1u(N)) {
-    Igor::Error("u error does not match expected value: expected {:.8e} but got {:.8e}",
-                Expected::L1u(N),
-                L1_u);
-    return 1;
-  }
-  if (L1_v > 1.1 * Expected::L1v(N)) {
-    Igor::Error("v error does not match expected value: expected {:.8e} but got {:.8e}",
-                Expected::L1v(N),
-                L1_v);
+  Float L1 = 0.0;
+  grid.foreach_range<Exec::SERIAL>(
+      u.x.nx() / 2, u.x.nx() / 2 + 1, 0, u.x.ny(), [=, &L1](Index i, Index j) {
+        const auto uth_exp  = uth_analytical(grid.ym(j));
+        L1                 += std::abs(uth_exp - u.x(i, j)) * grid.dy();
+      });
+  if (L1 > 1.1 * Expected::L1(NY)) {
+    Igor::Error("u_theta error does not match expected value: expected {:.8e} but got {:.8e}",
+                Expected::L1(NY),
+                L1);
     return 1;
   }
 }
