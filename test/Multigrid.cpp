@@ -96,8 +96,8 @@ auto main(int argc, char** argv) -> int {
     mg_converged = false;
   }
 
-  Igor::Debug("L1_fft = {:.8e}", L1_fft);
-  Igor::Debug("L1_mg  = {:.8e}", L1_mg);
+  // Igor::Debug("L1_fft = {:.8e}", L1_fft);
+  // Igor::Debug("L1_mg  = {:.8e}", L1_mg);
 
   const auto output_dir = get_output_directory("test/output");
   if (!init_output_directory(output_dir)) { return 1; }
