@@ -24,6 +24,8 @@ class VTKWriter {
   Float m_dy;
   Index m_ny;
 
+  Coordinates m_coords;
+
   std::vector<std::string> m_scalar_names;
   std::vector<Scalar<Float, LAYOUT>> m_scalar_values{};
 
@@ -43,6 +45,35 @@ class VTKWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
+  void write_points_cartesian(std::ofstream& out) {
+    for (Index j = 0; j < m_ny + 1; ++j) {
+      for (Index i = 0; i < m_nx + 1; ++i) {
+        const double xi = m_x_min + i * m_dx;
+        const double yj = m_y_min + j * m_dy;
+        const double zk = 0.0;
+        out.write(interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
+        out.write(interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
+        out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+      }
+    }
+  }
+
+  void write_points_polar(std::ofstream& out) {
+    for (Index j = 0; j < m_ny + 1; ++j) {
+      for (Index i = 0; i < m_nx + 1; ++i) {
+        const double theta = m_x_min + i * m_dx;
+        const double r     = m_y_min + j * m_dy;
+        const double z     = 0.0;
+
+        const double x     = r * std::cos(theta);
+        const double y     = r * std::sin(theta);
+        out.write(interpret_as_big_endian_bytes(x).data(), sizeof(x));
+        out.write(interpret_as_big_endian_bytes(y).data(), sizeof(y));
+        out.write(interpret_as_big_endian_bytes(z).data(), sizeof(z));
+      }
+    }
+  }
+
   void write_header(std::ofstream& out, Float t) {
     // = Write VTK header ====
     out << "# vtk DataFile Version 2.0\n";
@@ -53,15 +84,9 @@ class VTKWriter {
     out << "DATASET STRUCTURED_GRID\n";
     out << "DIMENSIONS " << m_nx + 1 << ' ' << m_ny + 1 << " 1\n";
     out << "POINTS " << (m_nx + 1) * (m_ny + 1) << " double\n";
-    for (Index j = 0; j < m_ny + 1; ++j) {
-      for (Index i = 0; i < m_nx + 1; ++i) {
-        const double xi = m_x_min + i * m_dx;
-        const double yj = m_y_min + j * m_dy;
-        const double zk = 0.0;
-        out.write(interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
-        out.write(interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
-        out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
-      }
+    switch (m_coords) {
+      case Coordinates::CARTESIAN: write_points_cartesian(out); break;
+      case Coordinates::POLAR:     write_points_polar(out); break;
     }
     out << "\n\n";
 
@@ -82,7 +107,9 @@ class VTKWriter {
   }
 
   // -----------------------------------------------------------------------------------------------
-  void write_vector(std::ofstream& out, const Vector<Float, LAYOUT> v, const std::string& name) {
+  void write_vector_cartesian(std::ofstream& out,
+                              const Vector<Float, LAYOUT> v,
+                              const std::string& name) {
     out << "VECTORS " << name << " double\n";
     for (Index j = 0; j < v.x.ny(); ++j) {
       for (Index i = 0; i < v.x.nx(); ++i) {
@@ -90,6 +117,26 @@ class VTKWriter {
         out.write(interpret_as_big_endian_bytes(v.x(i, j)).data(), sizeof(v.x(i, j)));
         out.write(interpret_as_big_endian_bytes(v.y(i, j)).data(), sizeof(v.y(i, j)));
         out.write(interpret_as_big_endian_bytes(z_comp_ij).data(), sizeof(z_comp_ij));
+      }
+    }
+    out << "\n\n";
+  }
+
+  void
+  write_vector_polar(std::ofstream& out, const Vector<Float, LAYOUT> v, const std::string& name) {
+    out << "VECTORS " << name << " double\n";
+    for (Index j = 0; j < v.x.ny(); ++j) {
+      for (Index i = 0; i < v.x.nx(); ++i) {
+        const double vtheta = v.x(i, j);
+        const double vr     = v.y(i, j);
+        const double theta  = m_x_min + i * m_dx;
+
+        const double vx     = vr * std::cos(theta) - vtheta * std::sin(theta);
+        const double vy     = vr * std::sin(theta) + vtheta * std::cos(theta);
+        const double vz     = 0.0;
+        out.write(interpret_as_big_endian_bytes(vx).data(), sizeof(vx));
+        out.write(interpret_as_big_endian_bytes(vy).data(), sizeof(vy));
+        out.write(interpret_as_big_endian_bytes(vz).data(), sizeof(vz));
       }
     }
     out << "\n\n";
@@ -105,7 +152,8 @@ class VTKWriter {
         m_y_min(grid.y_min()),
         m_y_max(grid.y_max()),
         m_dy(grid.dy()),
-        m_ny(grid.ny()) {}
+        m_ny(grid.ny()),
+        m_coords(grid.coords()) {}
 
   constexpr VTKWriter(const VTKWriter& other) noexcept                    = delete;
   constexpr VTKWriter(VTKWriter&& other) noexcept                         = delete;
@@ -144,7 +192,14 @@ class VTKWriter {
     }
 
     for (size_t i = 0; i < m_vector_names.size(); ++i) {
-      write_vector(out, m_vector_values[i], m_vector_names[i]);
+      switch (m_coords) {
+        case Coordinates::CARTESIAN:
+          write_vector_cartesian(out, m_vector_values[i], m_vector_names[i]);
+          break;
+        case Coordinates::POLAR:
+          write_vector_polar(out, m_vector_values[i], m_vector_names[i]);
+          break;
+      }
     }
 
     return out.good();

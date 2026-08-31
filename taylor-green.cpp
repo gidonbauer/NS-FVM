@@ -226,12 +226,12 @@ auto main(int argc, char** argv) -> int {
   Float L1_u = 0.0;
   grid.foreach_face_i<Dimension::X, Exec::SERIAL>([=, &L1_u](Index i, Index j) {
     const auto u_exp  = u_analytical(grid.x(i), grid.ym(j), t);
-    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv();
+    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv(i, j);
   });
   Float L1_v = 0.0;
   grid.foreach_face_i<Dimension::Y, Exec::SERIAL>([=, &L1_v](Index i, Index j) {
     const auto v_exp  = v_analytical(grid.xm(i), grid.y(j), t);
-    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv();
+    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
   });
 
   Igor::Info("L1(u) = {:.8e}", L1_u);

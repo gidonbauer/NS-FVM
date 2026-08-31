@@ -160,7 +160,6 @@ auto main(int argc, char** argv) -> int {
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
       apply_neumann_bconds(grid, dp);
-      shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);

@@ -41,6 +41,7 @@ void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexce
 //       parallelization.
 enum class Layout { C, F };
 enum class Dimension { X, Y };
+enum class Coordinates { CARTESIAN, POLAR };
 enum class Exec { PARALLEL, SERIAL };
 
 template <typename Float, Layout LAYOUT>
@@ -106,9 +107,9 @@ class Grid {
   Float m_dy;
   Index m_ny;
 
-  Float m_dv;
-
   Index m_nghost;
+
+  Coordinates m_coords;
 
   std::shared_ptr<std::vector<Float*>> m_to_free = std::make_shared<std::vector<Float*>>();
 #ifdef NS_FVM_PARALLEL
@@ -135,7 +136,8 @@ class Grid {
                  Float y_min,
                  Float y_max,
                  Index ny,
-                 Index nghost = 1) noexcept
+                 Index nghost       = 1,
+                 Coordinates coords = Coordinates::CARTESIAN) noexcept
       : m_x_min(x_min),
         m_x_max(x_max),
         m_dx((x_max - x_min) / nx),
@@ -144,8 +146,8 @@ class Grid {
         m_y_max(y_max),
         m_dy((y_max - y_min) / ny),
         m_ny(ny),
-        m_dv(m_dx * m_dy),
-        m_nghost(nghost) {}
+        m_nghost(nghost),
+        m_coords(coords) {}
 
   constexpr Grid(const Grid& other) noexcept                    = default;
   constexpr Grid(Grid&& other) noexcept                         = default;
@@ -167,8 +169,15 @@ class Grid {
   [[nodiscard]] constexpr auto y_max() const noexcept -> Float { return m_y_max; }
   [[nodiscard]] constexpr auto dy() const noexcept -> Float { return m_dy; }
   [[nodiscard]] constexpr auto ny() const noexcept -> Index { return m_ny; }
-  [[nodiscard]] constexpr auto dv() const noexcept -> Float { return m_dv; }
+  [[nodiscard]] constexpr auto dv(Index /*i*/, Index j) const noexcept -> Float {
+    switch (m_coords) {
+      case Coordinates::CARTESIAN: return m_dx * m_dy;
+      case Coordinates::POLAR:     return ym(j) * m_dy * m_dx;
+    }
+    Igor::Panic("Unreachable");
+  }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_nghost; }
+  [[nodiscard]] constexpr auto coords() const noexcept -> Coordinates { return m_coords; }
 
   // TODO: Maybe pass x and y as function argument to FOREACH_FUNC
   [[nodiscard]] constexpr auto x(Index i) const noexcept -> Float { return m_x_min + i * m_dx; }

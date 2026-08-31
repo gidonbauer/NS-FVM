@@ -223,8 +223,8 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
 
       const Float u_exp =
           quadrature([=](Float x, Float y) { return u_analytical(x, y, t); }, x0, x1, y0, y1) /
-          grid.dv();
-      L1_error += grid.dv() * std::abs(u(i, j) - u_exp);
+          grid.dv(i, j);
+      L1_error += grid.dv(i, j) * std::abs(u(i, j) - u_exp);
     }
   }
   Igor::Info("{} => {}", N, L1_error);

@@ -31,14 +31,19 @@ class MultigridSolver {
   // -----------------------------------------------------------------------------------------------
   constexpr void make_mean_free(const Grid& grid, Scalar s) const noexcept {
     Float mean = 0.0;
-    grid.template foreach_i<Exec::SERIAL>([=, &mean](Index i, Index j) { mean += s(i, j); });
-    mean /= static_cast<Float>(grid.nx() * grid.ny());
+    Float vol  = 0.0;
+    grid.template foreach_i<Exec::SERIAL>([=, &mean, &vol](Index i, Index j) {
+      mean += s(i, j) * grid.dv(i, j);
+      vol  += grid.dv(i, j);
+    });
+    mean /= vol;
     grid.foreach_i(FOREACH_FUNC { s(i, j) -= mean; });
   }
 
   // -----------------------------------------------------------------------------------------------
   constexpr auto residual(const Level& level) const noexcept -> Float {
     const Float inv_dx2 = 1.0 / Igor::sqr(level.grid.dx());
+    const Float inv_dy  = 1.0 / level.grid.dy();
     const Float inv_dy2 = 1.0 / Igor::sqr(level.grid.dy());
     auto sol            = level.sol;
     auto rhs            = level.rhs;
@@ -46,30 +51,46 @@ class MultigridSolver {
 
     apply_neumann_bconds(level.grid, sol);
     std::atomic<Float> max_res = 0.0;
-    level.grid.foreach_i([=, &max_res](Index i, Index j) {
-      const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
-                      (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-      res(i, j)     = rhs(i, j) - L;
-      update_maximum_atomic(max_res, std::abs(res(i, j)));
-    });
+    switch (level.grid.coords()) {
+      case Coordinates::CARTESIAN:
+        level.grid.foreach_i([=, &max_res](Index i, Index j) {
+          const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
+                          (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+          res(i, j)     = rhs(i, j) - L;
+          update_maximum_atomic(max_res, std::abs(res(i, j)));
+        });
+        break;
+      case Coordinates::POLAR:
+        level.grid.foreach_i([=, &max_res](Index i, Index j) {
+          const Float dpdr     = (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy;
+          const Float ddpdrr   = (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+          const Float ddpdthth = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2;
+          const Float r        = level.grid.ym(j);
+
+          const Float L        = ddpdrr + dpdr / r + ddpdthth / Igor::sqr(r);
+          res(i, j)            = rhs(i, j) - L;
+          update_maximum_atomic(max_res, std::abs(res(i, j)));
+        });
+        break;
+    }
     return static_cast<Float>(max_res);
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void smooth(const Level& level, Index num_iter) {
-    const Float idx2  = 1.0 / Igor::sqr(level.grid.dx());
-    const Float idy2  = 1.0 / Igor::sqr(level.grid.dy());
-    const Float idiag = 1.0 / (2.0 * (idx2 + idy2));
-    auto sol          = level.sol;
-    auto rhs          = level.rhs;
+  constexpr void smooth_cartesian(const Level& level, Index num_iter) {
+    const Float inv_dx2 = 1.0 / Igor::sqr(level.grid.dx());
+    const Float inv_dy2 = 1.0 / Igor::sqr(level.grid.dy());
+    const Float idiag   = 1.0 / (2.0 * (inv_dx2 + inv_dy2));
+    auto sol            = level.sol;
+    auto rhs            = level.rhs;
 
     // Do exactly num_iter iterations of the Gauss-Seidel algorithm
     for (Index iter = 0; iter < num_iter; ++iter) {
       apply_neumann_bconds(level.grid, sol);
 #ifndef NS_FVM_PARALLEL
       level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
-        sol(i, j) = ((sol(i - 1, j) + sol(i + 1, j)) * idx2 +  //
-                     (sol(i, j - 1) + sol(i, j + 1)) * idy2 -  //
+        sol(i, j) = ((sol(i - 1, j) + sol(i + 1, j)) * inv_dx2 +  //
+                     (sol(i, j - 1) + sol(i, j + 1)) * inv_dy2 -  //
                      rhs(i, j)) *
                     idiag;
       });
@@ -84,8 +105,8 @@ class MultigridSolver {
             const Index nj = j;
             const Index ni = j % 2 == 0 ? 2 * i : 2 * i + 1;
             if (ni >= nx) { return; }
-            sol(ni, nj) = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * idx2 +  //
-                           (sol(ni, nj - 1) + sol(ni, nj + 1)) * idy2 -  //
+            sol(ni, nj) = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * inv_dx2 +  //
+                           (sol(ni, nj - 1) + sol(ni, nj + 1)) * inv_dy2 -  //
                            rhs(ni, nj)) *
                           idiag;
           });
@@ -95,13 +116,75 @@ class MultigridSolver {
             const Index nj = j;
             const Index ni = j % 2 == 1 ? 2 * i : 2 * i + 1;
             if (ni >= nx) { return; }
-            sol(ni, nj) = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * idx2 +  //
-                           (sol(ni, nj - 1) + sol(ni, nj + 1)) * idy2 -  //
+            sol(ni, nj) = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * inv_dx2 +  //
+                           (sol(ni, nj - 1) + sol(ni, nj + 1)) * inv_dy2 -  //
                            rhs(ni, nj)) *
                           idiag;
           });
 #endif  // NS_FVM_PARALLEL
     }
+  }
+
+  constexpr void smooth_polar(const Level& level, Index num_iter) {
+    const Float inv_dx2 = 1.0 / Igor::sqr(level.grid.dx());
+    const Float inv_dy  = 1.0 / level.grid.dy();
+    const Float inv_dy2 = 1.0 / Igor::sqr(level.grid.dy());
+    auto sol            = level.sol;
+    auto rhs            = level.rhs;
+
+    // Do exactly num_iter iterations of the Gauss-Seidel algorithm
+    for (Index iter = 0; iter < num_iter; ++iter) {
+      apply_neumann_bconds(level.grid, sol);
+#ifndef NS_FVM_PARALLEL
+      level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
+        const Float r = level.grid.ym(j);
+        sol(i, j)     = ((sol(i - 1, j) + sol(i + 1, j)) * inv_dx2 / Igor::sqr(r) +  //
+                         (sol(i, j - 1) + sol(i, j + 1)) * inv_dy2 +                 //
+                         (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy / r -        //
+                         rhs(i, j)) /
+                        (2.0 * inv_dx2 / Igor::sqr(r) + 2.0 * inv_dy2);
+      });
+#else
+      // Red-black Gauss-Seidel for parallel execution
+      const auto nx_half = level.grid.nx() / 2;
+      const auto nx_rem  = level.grid.nx() % 2;
+      const auto nx      = level.grid.nx();
+      // First pass
+      level.grid.foreach_range(
+          0, nx_half + nx_rem, 0, level.grid.ny(), FOREACH_FUNC {
+            const Index nj = j;
+            const Index ni = j % 2 == 0 ? 2 * i : 2 * i + 1;
+            if (ni >= nx) { return; }
+            const Float r = level.grid.ym(nj);
+            sol(ni, nj)   = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * inv_dx2 / Igor::sqr(r) +  //
+                             (sol(ni, nj - 1) + sol(ni, nj + 1)) * inv_dy2 +                 //
+                             (sol(ni, nj + 1) - sol(ni, nj - 1)) * 0.5 * inv_dy / r -        //
+                             rhs(ni, nj)) /
+                            (2.0 * inv_dx2 / Igor::sqr(r) + 2.0 * inv_dy2);
+          });
+      // Second pass
+      level.grid.foreach_range(
+          0, nx_half + nx_rem, 0, level.grid.ny(), FOREACH_FUNC {
+            const Index nj = j;
+            const Index ni = j % 2 == 1 ? 2 * i : 2 * i + 1;
+            if (ni >= nx) { return; }
+            const Float r = level.grid.ym(nj);
+            sol(ni, nj)   = ((sol(ni - 1, nj) + sol(ni + 1, nj)) * inv_dx2 / Igor::sqr(r) +  //
+                             (sol(ni, nj - 1) + sol(ni, nj + 1)) * inv_dy2 +                 //
+                             (sol(ni, nj + 1) - sol(ni, nj - 1)) * 0.5 * inv_dy / r -        //
+                             rhs(ni, nj)) /
+                            (2.0 * inv_dx2 / Igor::sqr(r) + 2.0 * inv_dy2);
+          });
+#endif  // NS_FVM_PARALLEL
+    }
+  }
+
+  constexpr void smooth(const Level& level, Index num_iter) {
+    switch (level.grid.coords()) {
+      case Coordinates::CARTESIAN: return smooth_cartesian(level, num_iter);
+      case Coordinates::POLAR:     return smooth_polar(level, num_iter);
+    }
+    Igor::Panic("Unreachable");
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -189,7 +272,8 @@ class MultigridSolver {
                     grid.y_min(),
                     grid.y_max(),
                     grid.ny(),
-                    grid.nghost());
+                    grid.nghost(),
+                    grid.coords());
     while (true) {
       m_levels.emplace_back(level_grid,
                             level_grid.alloc_scalar(),
@@ -206,11 +290,12 @@ class MultigridSolver {
                         level_grid.y_min(),
                         level_grid.y_max(),
                         level_grid.ny() / 2,
-                        level_grid.nghost());
+                        level_grid.nghost(),
+                        level_grid.coords());
     }
   }
 
-  constexpr auto solve(Scalar sol, Scalar rhs, Float rtol = 1e-6, Index max_iter = 100) -> bool {
+  constexpr auto solve(Scalar sol, Scalar rhs, Float rtol = 1e-3, Index max_iter = 100) -> bool {
     const Level& fine = m_levels[0];
     IGOR_ASSERT(sol.nx() == fine.sol.nx() && sol.ny() == fine.sol.ny() &&
                     sol.nghost() == fine.sol.nghost(),

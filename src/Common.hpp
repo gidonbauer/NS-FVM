@@ -23,9 +23,9 @@ constexpr auto stats(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT
   Float sum2   = 0.0;
   Float volume = 0.0;
   grid.foreach_i([=, &min, &max, &sum, &sum2, &volume](Index i, Index j) {
-    volume += grid.dv();
-    sum    += grid.dv() * f(i, j);
-    sum2   += grid.dv() * Igor::sqr(f(i, j));
+    volume += grid.dv(i, j);
+    sum    += grid.dv(i, j) * f(i, j);
+    sum2   += grid.dv(i, j) * Igor::sqr(f(i, j));
     max     = std::max(max, f(i, j));
     min     = std::min(min, f(i, j));
   });

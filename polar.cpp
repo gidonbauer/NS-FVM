@@ -9,8 +9,9 @@
 #include "Common.hpp"
 #include "Grid.hpp"
 #include "IO.hpp"
-#include "MacPolar.hpp"
+#include "Mac.hpp"
 #include "Monitor.hpp"
+#include "MultigridPoisson.hpp"
 #include "VTKWriter.hpp"
 
 // = Setup =========================================================================================
@@ -58,33 +59,38 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float, Layout::C> grid(theta_min, theta_max, NX, r_min, r_max, NY, 1);
+  Grid<Float, Layout::C> grid(theta_min, theta_max, NX, r_min, r_max, NY, 1, Coordinates::POLAR);
 
-  auto u_old = grid.alloc_face_vector();
-  auto u     = grid.alloc_face_vector();
+  auto u_old      = grid.alloc_face_vector();
+  auto u          = grid.alloc_face_vector();
 
-  auto FUX   = grid.alloc_scalar();
-  auto FUY   = grid.alloc_vertex_scalar();
-  auto FVX   = grid.alloc_vertex_scalar();
-  auto FVY   = grid.alloc_scalar();
+  auto FUX        = grid.alloc_scalar();
+  auto FUY        = grid.alloc_vertex_scalar();
+  auto FVX        = grid.alloc_vertex_scalar();
+  auto FVY        = grid.alloc_scalar();
 
-  auto ui    = grid.alloc_vector();
-  auto p     = grid.alloc_scalar();
-  auto dp    = grid.alloc_scalar();
-  auto div   = grid.alloc_scalar();
+  auto ui         = grid.alloc_vector();
+  auto p          = grid.alloc_scalar();
+  auto dp         = grid.alloc_scalar();
+  auto div        = grid.alloc_scalar();
 
-  auto ua    = grid.alloc_vector();
+  auto ua         = grid.alloc_vector();
 
-  Float dt   = 0.0;
-  Float t    = 0.0;
+  Float dt        = 0.0;
+  Float t         = 0.0;
+
+  Index mg_cycles = 0;
+  Float mg_res    = 0.0;
 
   // = Linear solver ===============================================================================
-  const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
-  const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
-  const std::array<int, 4> BCs  = {
-      PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
-  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
-  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
+  // const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
+  // const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
+  // const std::array<int, 4> BCs  = {
+  //     PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG,
+  //     PoisFFT::NEUMANN_STAG};
+  // PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(),
+  // PoisFFT::FINITE_DIFFERENCE_2); const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
+  MultigridSolver solver(grid);
   // = Linear solver ===============================================================================
 
   const VelocityBConds<Float> bconds{
@@ -129,6 +135,8 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&u_max, "absmax(u)");
   monitor.add_variable(&v_max, "absmax(v)");
   monitor.add_variable(&div_max, "absmax(div)");
+  monitor.add_variable(&mg_res, "res(MG)");
+  monitor.add_variable(&mg_cycles, "cycles(MG)");
   monitor.write();
 
   IGOR_TIME_SCOPE("Solver")
@@ -151,9 +159,15 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       // TODO: This is not correct for polar coordinates
-      solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+      // solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+      if (!solver.solve(dp, div)) {
+        Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
+                   solver.num_cycles(),
+                   solver.res());
+      }
+      mg_cycles = solver.num_cycles();
+      mg_res    = solver.res();
       apply_neumann_bconds(grid, dp);
-      shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
