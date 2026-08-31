@@ -14,6 +14,7 @@
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
+#include "MultigridPoisson.hpp"
 #include "VTKWriter.hpp"
 
 using Float              = double;
@@ -140,14 +141,7 @@ auto main(int argc, char** argv) -> int {
   Float dt   = 0.0;
   Float t    = 0.0;
 
-  // = Linear solver ===============================================================================
-  const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
-  const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
-  const std::array<int, 4> BCs  = {
-      PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
-  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
-  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
-  // = Linear solver ===============================================================================
+  MultigridSolver solver(grid);
 
   const VelocityBConds<Float> bconds{
       .left   = Periodic{},
@@ -206,9 +200,13 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+      if (!solver.solve(dp, div)) {
+        Igor::Warn("Multogrid solver did not converge after {} cycles: res = {:.8e}",
+                   solver.num_cycles(),
+                   solver.res());
+      }
       apply_neumann_bconds(grid, dp);
-      shift_dp_to_zero(grid, dp);
+      // shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);

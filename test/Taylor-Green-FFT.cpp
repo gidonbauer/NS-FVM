@@ -14,7 +14,6 @@
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
-#include "MultigridPoisson.hpp"
 #include "VTKWriter.hpp"
 
 using Float              = double;
@@ -46,86 +45,108 @@ auto v_analytical(Float x, Float y, Float t) -> Float {
 }
 
 // =================================================================================================
-auto main(int argc, char** argv) -> int {
-  const auto usage_str =
-      Igor::detail::format("Usage: {} [--linear-solver=MG|FFT] <grid size>", argv[0]);
+namespace Expected {
+constexpr std::array ns   = {16, 32, 64, 128, 256, 512};
+constexpr std::array L1us = {
+    1.89857866e-03,
+    4.84058581e-04,
+    1.17548585e-04,
+    2.92080456e-05,
+    7.29536607e-06,
+    1.82353585e-06,
+};
+static_assert(ns.size() == L1us.size());
+constexpr std::array L1vs = {
+    1.89862094e-03,
+    4.84100889e-04,
+    1.17550817e-04,
+    2.92081624e-05,
+    7.29537307e-06,
+    1.82353628e-06,
+};
+static_assert(ns.size() == L1vs.size());
 
-  Index N        = 0;
-  bool multigrid = false;
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg(argv[i]);
-    if (arg.starts_with("--linear-solver")) {
-      arg.remove_prefix(std::strlen("--linear-solver"));
-      if (arg.starts_with('=')) {
-        arg.remove_prefix(1);
-      } else {
-        if (i + 1 >= argc) {
-          Igor::Error("Expected argument for `{}`", argv[i]);
-          return 1;
-        }
-        i   += 1;
-        arg  = argv[i];
-      }
-      if (arg == "MG") {
-        multigrid = true;
-      } else if (arg == "FFT") {
-        multigrid = false;
-      } else {
-        Igor::Error("{}", usage_str);
-        Igor::Error("  Invalid linear solver `{}`", arg);
-        return 1;
-      }
-    } else {
-      if (std::from_chars(arg.data(), arg.data() + arg.size(), N).ec != std::errc{} || N <= 0) {
-        Igor::Error("{}", usage_str);
-        Igor::Error("  Invalid grid size `{}`", arg);
-        return 1;
-      }
-    }
+template <std::size_t N>
+constexpr auto interp_n2(const std::array<Index, N>& xs, const std::array<double, N>& es, Index n)
+    -> double {
+  static_assert(N >= 2, "need at least two samples");
+
+  // Exact hits: return the tabulated value bit-for-bit.
+  for (std::size_t i = 0; i < N; ++i) {
+    if (xs[i] == n) { return es[i]; }
   }
 
-  if (N == 0) {
+  const auto coeff = [&](std::size_t i) {
+    const auto xi = static_cast<double>(xs[i]);
+    return es[i] * xi * xi;
+  };
+  const auto nd = static_cast<double>(n);
+
+  // Extrapolation: hold C at the nearest end -> pure quadratic scaling.
+  if (n < xs.front()) { return coeff(0) / (nd * nd); }
+  if (n > xs.back()) { return coeff(N - 1) / (nd * nd); }
+
+  // Bracket: xs[i] < n < xs[i + 1]
+  std::size_t i = 0;
+  while (xs[i + 1] < n) {
+    ++i;
+  }
+
+  const auto x0 = static_cast<double>(xs[i]);
+  const auto x1 = static_cast<double>(xs[i + 1]);
+  const auto t  = (nd - x0) / (x1 - x0);
+
+  return ((1.0 - t) * coeff(i) + t * coeff(i + 1)) / (nd * nd);
+}
+constexpr auto L1u(Index n) { return interp_n2(ns, L1us, n); }
+constexpr auto L1v(Index n) { return interp_n2(ns, L1vs, n); }
+
+}  // namespace Expected
+// =================================================================================================
+
+// =================================================================================================
+auto main(int argc, char** argv) -> int {
+  const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
+  if (argc < 2) {
     Igor::Error("{}", usage_str);
-    Igor::Error("  Missing grid size.");
     return 1;
   }
 
-  const auto output_dir = get_output_directory();
+  Index N = 0;
+  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
+    Igor::Error("{}", usage_str);
+    Igor::Error("  Invalid grid size `{}`", argv[1]);
+    return 1;
+  }
+
+  const auto output_dir = get_output_directory("test/output");
   if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 1);
 
-  auto u_old        = grid.alloc_face_vector();
-  auto u            = grid.alloc_face_vector();
+  auto u_old = grid.alloc_face_vector();
+  auto u     = grid.alloc_face_vector();
 
-  auto FUX          = grid.alloc_scalar();
-  auto FUY          = grid.alloc_vertex_scalar();
-  auto FVX          = grid.alloc_vertex_scalar();
-  auto FVY          = grid.alloc_scalar();
+  auto FUX   = grid.alloc_scalar();
+  auto FUY   = grid.alloc_vertex_scalar();
+  auto FVX   = grid.alloc_vertex_scalar();
+  auto FVY   = grid.alloc_scalar();
 
-  auto ui           = grid.alloc_vector();
-  auto p            = grid.alloc_scalar();  // Pressure (accumulated across steps).
-  auto dp           = grid.alloc_scalar();  // Pressure correction of the current step.
-  auto div          = grid.alloc_scalar();
+  auto ui    = grid.alloc_vector();
+  auto p     = grid.alloc_scalar();  // Pressure (accumulated across steps).
+  auto dp    = grid.alloc_scalar();  // Pressure correction of the current step.
+  auto div   = grid.alloc_scalar();
 
-  Float dt          = 0.0;
-  Float t           = 0.0;
-
-  Index mg_cycles   = 0;
-  Float mg_residual = 0.0;
+  Float dt   = 0.0;
+  Float t    = 0.0;
 
   // = Linear solver ===============================================================================
   const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
   const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
   const std::array<int, 4> BCs  = {
       PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
-  PoisFFT::Solver<2, Float> fft_solver(
-      ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
+  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
-
-  // ~~~~~
-
-  MultigridSolver mg_solver(grid);
   // = Linear solver ===============================================================================
 
   const VelocityBConds<Float> bconds{
@@ -165,15 +186,10 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&u_max, "absmax(u)");
   monitor.add_variable(&v_max, "absmax(v)");
   monitor.add_variable(&div_max, "absmax(div)");
-  if (multigrid) {
-    monitor.add_variable(&mg_residual, "res(MG)");
-    monitor.add_variable(&mg_cycles, "cycles(MG)");
-  }
   monitor.write();
 
-  IGOR_TIME_SCOPE("Solver")
+  IGOR_TIME_SCOPE("Taylor-Green-" + std::to_string(N))
   while (t < tend) {
-    // Time-step size: convective CFL and the (2D) explicit-diffusion limit dt <= h^2 / (4 nu).
     dt = adjust_dt(grid, u, rho, mu, CFL);
     dt = std::min({dt, dt_write, tend - t});
 
@@ -190,14 +206,9 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (multigrid) {
-        mg_solver.solve(dp, div);
-        mg_cycles   = mg_solver.num_cycles();
-        mg_residual = mg_solver.res();
-      } else {
-        fft_solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
-      }
+      solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
       apply_neumann_bconds(grid, dp);
+      // shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -234,8 +245,16 @@ auto main(int argc, char** argv) -> int {
     L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv();
   });
 
-  Igor::Info("L1(u) = {:.8e}", L1_u);
-  Igor::Info("L1(v) = {:.8e}", L1_v);
-
-  Igor::Info("Ok.");
+  if (L1_u > 1.1 * Expected::L1u(N)) {
+    Igor::Error("u error does not match expected value: expected {:.8e} but got {:.8e}",
+                Expected::L1u(N),
+                L1_u);
+    return 1;
+  }
+  if (L1_v > 1.1 * Expected::L1v(N)) {
+    Igor::Error("v error does not match expected value: expected {:.8e} but got {:.8e}",
+                Expected::L1v(N),
+                L1_v);
+    return 1;
+  }
 }

@@ -1,6 +1,7 @@
 #ifndef NS_FVM_GRID_HPP_
 #define NS_FVM_GRID_HPP_
 
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -28,6 +29,12 @@ static_assert(std::is_integral_v<NS_FVM_INDEX_TYPE> && std::is_signed_v<NS_FVM_I
               "NS_FVM_INDEX_TYPE must be a signed integer type.");
 using Index = NS_FVM_INDEX_TYPE;
 #endif  // FS_INDEX_TYPE
+
+template <typename T>
+void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexcept {
+  T prev_value = maximum_value;
+  while (prev_value < value && !maximum_value.compare_exchange_weak(prev_value, value)) {}
+}
 
 // TODO: Consider blocked layout. Each block should have its own ghost layer around it. This
 //       requires a halo exchange after each update but opens up the path to efficient
@@ -61,18 +68,23 @@ class KokkosRefCount {
     if (m_count == 0) { Kokkos::initialize(); }
     m_count += 1;
   }
-  constexpr KokkosRefCount(const KokkosRefCount& /*other*/) noexcept { m_count += 1; }
-  constexpr KokkosRefCount(KokkosRefCount&& /*other*/) noexcept = default;
-  constexpr auto operator=(const KokkosRefCount& other) noexcept -> KokkosRefCount& {
-    if (this != &other) { m_count += 1; }
-    return *this;
+  constexpr KokkosRefCount(const KokkosRefCount& /*other*/) noexcept {
+    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
+    m_count += 1;
   }
-  constexpr auto operator=(KokkosRefCount&& /*other*/) noexcept -> KokkosRefCount& = default;
+  constexpr KokkosRefCount(KokkosRefCount&& /*other*/) noexcept {
+    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
+    m_count += 1;
+  }
+  constexpr auto operator=(const KokkosRefCount& other) noexcept -> KokkosRefCount& = default;
+  constexpr auto operator=(KokkosRefCount&& /*other*/) noexcept -> KokkosRefCount&  = default;
   constexpr ~KokkosRefCount() noexcept {
     IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
     if (m_count == 1) { Kokkos::finalize(); }
     m_count -= 1;
   }
+
+  static constexpr auto count() noexcept -> size_t { return m_count; }
 };
 size_t KokkosRefCount::m_count = 0;
 #endif  // NS_FVM_PARALLEL
