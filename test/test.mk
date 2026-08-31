@@ -1,5 +1,5 @@
-TESTS = Taylor-Green-MG-8 Taylor-Green-MG-16 Taylor-Green-MG-64 Taylor-Green-MG-100 \
-        Taylor-Green-FFT-8 Taylor-Green-FFT-16 Taylor-Green-FFT-64 Taylor-Green-FFT-100 \
+TESTS = Taylor-Green-MG-8 Taylor-Green-MG-16 Taylor-Green-MG-64 Taylor-Green-MG-128 Taylor-Green-MG-100 \
+        Taylor-Green-FFT-8 Taylor-Green-FFT-16 Taylor-Green-FFT-64 Taylor-Green-FFT-128 Taylor-Green-FFT-100 \
         Multigrid-32 Multigrid-64 Multigrid-128 Multigrid-512 Multigrid-1024
 
 # ------------------------------------------------------------------------------

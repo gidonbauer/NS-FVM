@@ -21,11 +21,22 @@ class MultigridSolver {
   Index m_num_iter_pre;
   Index m_num_iter_post;
   Index m_num_iter_coarse;
-  Index m_num_cycles = 0;
-  Float m_res        = 0.0;
+  Index m_max_iter_coarse;
+  Index m_num_cycles                 = 0;
+  Float m_res                        = 0.0;
+
+  static constexpr Float COARSE_RTOL = 1e-3;
 
   // -----------------------------------------------------------------------------------------------
-  constexpr auto residual(Level level) const noexcept -> Float {
+  constexpr void make_mean_free(const Grid& grid, Scalar s) const noexcept {
+    Float mean = 0.0;
+    grid.template foreach_i<Exec::SERIAL>([=, &mean](Index i, Index j) { mean += s(i, j); });
+    mean /= static_cast<Float>(grid.nx() * grid.ny());
+    grid.foreach_i(FOREACH_FUNC { s(i, j) -= mean; });
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  constexpr auto residual(const Level& level) const noexcept -> Float {
     const Float inv_dx2 = 1.0 / Igor::sqr(level.grid.dx());
     const Float inv_dy2 = 1.0 / Igor::sqr(level.grid.dy());
     auto sol            = level.sol;
@@ -38,13 +49,13 @@ class MultigridSolver {
       const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
                       (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
       res(i, j)     = rhs(i, j) - L;
-      update_maximum_atomic(max_res, res(i, j));
+      update_maximum_atomic(max_res, std::abs(res(i, j)));
     });
     return static_cast<Float>(max_res);
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void smooth(Level level, Index num_iter) {
+  constexpr void smooth(const Level& level, Index num_iter) {
     const Float idx2  = 1.0 / Igor::sqr(level.grid.dx());
     const Float idy2  = 1.0 / Igor::sqr(level.grid.dy());
     const Float idiag = 1.0 / (2.0 * (idx2 + idy2));
@@ -93,7 +104,7 @@ class MultigridSolver {
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void restrict_residual(Level level, Level coarse) {
+  constexpr void restrict_residual(const Level& level, const Level& coarse) {
     IGOR_ASSERT(level.grid.nx() / 2 == coarse.grid.nx() && level.grid.ny() / 2 == coarse.grid.ny(),
                 "Expected `coarse` to be the next coarser level but we skipped something.");
     auto res = level.res;
@@ -105,10 +116,11 @@ class MultigridSolver {
                    res(2 * i + 1, 2 * j + 1)) /
                   4.0;
     });
+    make_mean_free(coarse.grid, rhs);
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr void prolongate_and_correct(Level coarse, Level level) {
+  constexpr void prolongate_and_correct(const Level& coarse, const Level& level) {
     IGOR_ASSERT(level.grid.nx() / 2 == coarse.grid.nx() && level.grid.ny() / 2 == coarse.grid.ny(),
                 "Expected `coarse` to be the next coarser level but we skipped something.");
     auto lsol = level.sol;
@@ -134,7 +146,11 @@ class MultigridSolver {
 
     // Check if we are at the coarsest level
     if (l + 1 == m_levels.size()) {
-      smooth(level, m_num_iter_coarse);
+      const Float res0 = residual(level);
+      for (Index iter = 0; iter < m_max_iter_coarse; iter += m_num_iter_coarse) {
+        smooth(level, m_num_iter_coarse);
+        if (residual(level) <= COARSE_RTOL * res0) { break; }
+      }
       return;
     }
 
@@ -145,6 +161,7 @@ class MultigridSolver {
     restrict_residual(level, coarse);  // Interpolate the residual of `level` onto `rhs` of coarse
     fill(coarse.sol, 0.0);
     vcycle(l + 1);  // Solve correction equation for `coarse`
+    make_mean_free(coarse.grid, coarse.sol);
 
     // Bilinear interpolation of the coarse correction onto level
     prolongate_and_correct(coarse, level);
@@ -156,10 +173,12 @@ class MultigridSolver {
                             Index min_size        = 2,
                             Index num_iter_pre    = 2,
                             Index num_iter_post   = 2,
-                            Index num_iter_coarse = 50)
+                            Index num_iter_coarse = 50,
+                            Index max_iter_coarse = 5000)
       : m_num_iter_pre(num_iter_pre),
         m_num_iter_post(num_iter_post),
-        m_num_iter_coarse(num_iter_coarse) {
+        m_num_iter_coarse(num_iter_coarse),
+        m_max_iter_coarse(max_iter_coarse) {
     IGOR_ASSERT(grid.nghost() >= 1, "Expected at least one ghost cell, but got {}", grid.nghost());
     IGOR_ASSERT(min_size >= 1, "Expected a positive minimum grid size, but got {}", min_size);
 
@@ -190,7 +209,7 @@ class MultigridSolver {
     }
   }
 
-  constexpr auto solve(Scalar sol, Scalar rhs, Float tol = 1e-6, Index max_iter = 100) -> bool {
+  constexpr auto solve(Scalar sol, Scalar rhs, Float rtol = 1e-6, Index max_iter = 100) -> bool {
     const Level& fine = m_levels[0];
     IGOR_ASSERT(sol.nx() == fine.sol.nx() && sol.ny() == fine.sol.ny() &&
                     sol.nghost() == fine.sol.nghost(),
@@ -201,8 +220,22 @@ class MultigridSolver {
 
     copy(sol, fine.sol);
     copy(rhs, fine.rhs);
+    make_mean_free(fine.grid, fine.rhs);
 
-    bool converged = false;
+    const auto fine_rhs = fine.rhs;
+    Float rhs_norm      = 0.0;
+    fine.grid.template foreach_i<Exec::SERIAL>([=, &rhs_norm](Index i, Index j) {
+      rhs_norm = std::max(rhs_norm, std::abs(fine_rhs(i, j)));
+    });
+    if (rhs_norm == 0.0) {
+      fill(sol, 0.0);
+      m_num_cycles = 0;
+      m_res        = 0.0;
+      return true;
+    }
+    const Float tol = rtol * rhs_norm;
+
+    bool converged  = false;
     for (m_num_cycles = 0; true; ++m_num_cycles) {
       m_res = residual(fine);
       if (m_res <= tol) {
@@ -213,13 +246,7 @@ class MultigridSolver {
       vcycle(0);
     }
 
-    const auto fine_sol = fine.sol;
-    Float mean          = 0.0;
-    fine.grid.template foreach_i<Exec::SERIAL>(
-        [=, &mean](Index i, Index j) { mean += fine_sol(i, j); });
-    mean /= static_cast<Float>(fine.grid.nx() * fine.grid.ny());
-    fine.grid.foreach_i(FOREACH_FUNC { fine_sol(i, j) -= mean; });
-
+    make_mean_free(fine.grid, fine.sol);
     copy(fine.sol, sol);
 
     return converged;
