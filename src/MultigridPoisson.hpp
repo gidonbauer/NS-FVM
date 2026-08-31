@@ -3,6 +3,7 @@
 
 #include <Igor/Math.hpp>
 
+#include "BoundaryConditions.hpp"
 #include "Grid.hpp"
 
 template <typename Float, Layout LAYOUT>

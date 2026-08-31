@@ -8,7 +8,6 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
-#include "BoundaryConditions.hpp"
 #include "Grid.hpp"
 #include "IO.hpp"
 #include "MultigridPoisson.hpp"
@@ -30,87 +29,6 @@ constexpr auto F(Float x, Float y) -> Float {
 constexpr auto ddF(Float x, Float y) -> Float {
   return -4.0 * Igor::sqr(pi) * (std::cos(2.0 * pi * x) + std::cos(2.0 * pi * y));
 }
-
-#if 0
-template <typename Float, Layout LAYOUT>
-constexpr auto poisson_gauss_seidel(const Grid<Float, LAYOUT>& grid,
-                                    Scalar<Float, LAYOUT> x,
-                                    const Scalar<Float, LAYOUT> rhs,
-                                    Float tol      = 1e-6,
-                                    Index max_iter = 100) -> bool {
-  const Float idx2 = 1.0 / Igor::sqr(grid.dx());
-  const Float idy2 = 1.0 / Igor::sqr(grid.dy());
-
-  // Over-relaxation factor (SOR). The Jacobi iteration matrix of the 5-point Laplacian has the
-  // eigenvalues (idx2 * cos(k pi / nx) + idy2 * cos(l pi / ny)) / (idx2 + idy2). The constant mode
-  // (k = l = 0) spans the null-space of the Neumann problem and is removed by the mean-free step
-  // below, hence the relevant spectral radius rho is attained by the slowest non-constant mode.
-  // SOR is then optimal for omega = 2 / (1 + sqrt(1 - rho^2)).
-  const Float pi_v = std::numbers::pi_v<Float>;
-  const Float rho  = std::max(idx2 * std::cos(pi_v / static_cast<Float>(grid.nx())) + idy2,
-                              idx2 + idy2 * std::cos(pi_v / static_cast<Float>(grid.ny()))) /
-                     (idx2 + idy2);
-  const Float omega =
-      rho < 1.0 ? 2.0 / (1.0 + std::sqrt(1.0 - Igor::sqr(rho))) : 1.0 /* plain Gauss-Seidel */;
-
-  bool converged = false;
-  for (Index iter = 0; iter <= max_iter; ++iter) {
-    apply_neumann_bconds(grid, x);
-
-    // Residual r = rhs - laplace(x) in max-norm
-    Float res = 0.0;
-    grid.template foreach_i<Exec::SERIAL>([=, &res](Index i, Index j) {
-      const Float laplace_x = (x(i - 1, j) - Float{2} * x(i, j) + x(i + 1, j)) * idx2 +
-                              (x(i, j - 1) - Float{2} * x(i, j) + x(i, j + 1)) * idy2;
-      res                   = std::max(res, Igor::abs(rhs(i, j) - laplace_x));
-    });
-    if (res <= tol) {
-      converged = true;
-      break;
-    }
-    if (iter == max_iter) { break; }
-
-    // Successive over-relaxation sweep. foreach_i visits the cells in lexicographic order for
-    // Exec::SERIAL, so the already updated values of the previous neighbors are used
-    // (Gauss-Seidel) and the update is then extrapolated by omega.
-    // The homogeneous Neumann condition is eliminated instead of taken from the ghost cells: a
-    // ghost cell mirrors its interior neighbor, hence the corresponding off-diagonal entry and the
-    // matching part of the diagonal cancel. Using the stale ghost values of the last
-    // apply_neumann_bconds would lag the boundary cells behind the sweep and destroy the gain of
-    // the over-relaxation.
-    grid.template foreach_i<Exec::SERIAL>([=](Index i, Index j) {
-      Float off_diag = 0.0;
-      Float diag     = 0.0;
-      if (i > 0) {
-        off_diag += x(i - 1, j) * idx2;
-        diag     += idx2;
-      }
-      if (i < grid.nx() - 1) {
-        off_diag += x(i + 1, j) * idx2;
-        diag     += idx2;
-      }
-      if (j > 0) {
-        off_diag += x(i, j - 1) * idy2;
-        diag     += idy2;
-      }
-      if (j < grid.ny() - 1) {
-        off_diag += x(i, j + 1) * idy2;
-        diag     += idy2;
-      }
-      const Float x_gs  = (off_diag - rhs(i, j)) / diag;
-      x(i, j)          += omega * (x_gs - x(i, j));
-    });
-  }
-
-  // Make the solution mean-free
-  Float mean = 0.0;
-  grid.template foreach_i<Exec::SERIAL>([=, &mean](Index i, Index j) { mean += x(i, j); });
-  mean /= static_cast<Float>(grid.nx() * grid.ny());
-  grid.foreach_i(FOREACH_FUNC { x(i, j) -= mean; });
-
-  return converged;
-}
-#endif
 
 template <typename Float, Layout LAYOUT>
 constexpr auto L1error(const Grid<Float, LAYOUT>& grid,
