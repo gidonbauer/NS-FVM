@@ -1,8 +1,6 @@
 #include <charconv>
 #include <numbers>
 
-#include <poisfft.h>
-
 #include <Igor/Timer.hpp>
 
 #include "BoundaryConditions.hpp"
