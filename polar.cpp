@@ -25,7 +25,7 @@ constexpr Float r_max     = 2.0;
 constexpr Float rho       = 1.0;
 constexpr Float mu        = 1.0;
 constexpr Float CFL       = 0.7;
-constexpr Float tend      = 3.0;
+constexpr Float tend      = 1.5;
 
 constexpr Float dt_write  = tend / 100.0;
 
@@ -141,7 +141,6 @@ auto main(int argc, char** argv) -> int {
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
-    // Time-step size: convective CFL and the (2D) explicit-diffusion limit dt <= h^2 / (4 nu).
     dt = adjust_dt(grid, u, rho, mu, CFL);
     dt = std::min({dt, dt_write, tend - t});
 
@@ -158,8 +157,6 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      // TODO: This is not correct for polar coordinates
-      // solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
       if (!solver.solve(dp, div, 1e-3)) {
         Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
