@@ -19,8 +19,8 @@ else ifeq (${BASENAME_CXX}, ${filter ${BASENAME_CXX}, g++ g++-16})
 else ifeq (${BASENAME_CXX}, icpx)
 
 	CXX_FLAGS           = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
-	CXX_RELEASE_FLAGS   = -O3 -xSSE4.2 -axCORE-AVX2,AVX -fp-model precise
-	CXX_FAST_FLAGS      = -O3 -xSSE4.2 -axCORE-AVX2,AVX -fp-model fast=2 -ffast-math -DNDEBUG -DIGOR_NDEBUG
+	CXX_RELEASE_FLAGS   = -O3 -march=native -fp-model precise
+	CXX_FAST_FLAGS      = -O3 -march=native -fp-model fast=2 -ffast-math -DNDEBUG -DIGOR_NDEBUG
 	CXX_DEBUG_FLAGS     = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
 
