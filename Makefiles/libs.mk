@@ -1,21 +1,28 @@
 CXX_INC := -I./src
 CXX_LIB :=
 
+# = Igor =========================================
 IGOR_DIR ?= ${HOME}/opt/Igor
 IGOR_INC = -I${IGOR_DIR}
 CXX_INC += ${IGOR_INC}
+# = Igor =========================================
 
+# = PoisFFT ======================================
 POISFFT_DIR ?= ./Thirdparty/PoisFFT
 POISFFT_INC = -I${POISFFT_DIR}/src
-POISFFT_LIB = -L${POISFFT_DIR}/lib/ -Wl,-rpath,${POISFFT_DIR}/lib/ -lpoisfft
-# POISFFT_LIB_OMP = -L${POISFFT_DIR}/lib/ -Wl,-rpath,${POISFFT_DIR}/lib/ -lpoisfft_omp
-CXX_INC += ${POISFFT_INC}
-# ifeq (${PARALLEL}, 1)
-# 	CXX_LIB += ${POISFFT_LIB_OMP}
-# else
-CXX_LIB += ${POISFFT_LIB}
-# endif
+POISFFT_LIB = -L${POISFFT_DIR}/lib/ -Wl,-rpath,${POISFFT_DIR}/lib/
+ifeq (${PARALLEL}, 1)
+	# POISFFT_LIB += -lpoisfft_omp
+	POISFFT_LIB += -lpoisfft
+else
+	POISFFT_LIB += -lpoisfft
+endif
 
+CXX_INC += ${POISFFT_INC}
+CXX_LIB += ${POISFFT_LIB}
+# = PoisFFT ======================================
+
+# = Kokkos =======================================
 ifeq (${PARALLEL}, 1)
 	OMP_DIR ?= /opt/homebrew/opt/libomp
 	OMP_LIB = -L${OMP_DIR}/lib -lomp
@@ -28,3 +35,4 @@ ifeq (${PARALLEL}, 1)
 	CXX_INC += ${KOKKOS_INC}
 	CXX_LIB += ${KOKKOS_LIB}
 endif
+# = Kokkos =======================================

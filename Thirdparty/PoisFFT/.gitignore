@@ -1,11 +1,15 @@
 *.mod
 *.o
 *.so
+*.dylib
+*.a
 *.os
 *.vtk
 *~
 back/*
 bin/*
+build/*
+obj/*
 lib/*
 tmp/*
 scratch/*
