@@ -1,5 +1,4 @@
-#ifndef NS_FVM_VTK_WRITER_HPP_
-#define NS_FVM_VTK_WRITER_HPP_
+#pragma once
 
 #include <array>
 #include <bit>
@@ -205,5 +204,3 @@ class VTKWriter {
     return out.good();
   }
 };
-
-#endif  // NS_FVM_VTK_WRITER_HPP_

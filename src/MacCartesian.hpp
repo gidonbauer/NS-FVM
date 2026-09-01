@@ -1,5 +1,4 @@
-#ifndef NS_FVM_MAC_CARTESIAN_HPP_
-#define NS_FVM_MAC_CARTESIAN_HPP_
+#pragma once
 
 #include <Igor/Math.hpp>
 
@@ -108,5 +107,3 @@ constexpr void correct_velocity(const Grid<Float, LAYOUT>& grid,
 }
 
 }  // namespace Cartesian
-
-#endif  // NS_FVM_MAC_CARTESIAN_HPP_

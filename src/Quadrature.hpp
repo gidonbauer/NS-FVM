@@ -1,5 +1,4 @@
-#ifndef NS_FVM_QUADRATURE_
-#define NS_FVM_QUADRATURE_
+#pragma once
 
 #include <numeric>
 #include <span>
@@ -102,5 +101,3 @@ template <typename Float>
   const auto dx = (x_max - x_min) / static_cast<Float>(N - 1);
   return res * dx / 3.0;
 }
-
-#endif  // NS_FVM_QUADRATURE_

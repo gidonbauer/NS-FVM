@@ -1,5 +1,4 @@
-#ifndef NS_FVM_IO_HPP_
-#define NS_FVM_IO_HPP_
+#pragma once
 
 #include <cmath>
 #include <cstring>
@@ -86,5 +85,3 @@ get_output_directory(std::string_view subdir   = "output",
 
   return true;
 }
-
-#endif  // NS_FVM_IO_HPP_

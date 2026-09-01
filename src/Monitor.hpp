@@ -1,5 +1,4 @@
-#ifndef NS_FVM_MONITOR_HPP_
-#define NS_FVM_MONITOR_HPP_
+#pragma once
 
 #include <fstream>
 #include <variant>
@@ -85,5 +84,3 @@ class Monitor {
     m_out << '\n' << std::flush;
   }
 };
-
-#endif  // NS_FVM_MONITOR_HPP_

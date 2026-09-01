@@ -1,5 +1,4 @@
-#ifndef NS_FVM_QUADRATURE_TABLES_HPP_
-#define NS_FVM_QUADRATURE_TABLES_HPP_
+#pragma once
 
 #include <array>
 
@@ -1922,5 +1921,3 @@ inline constexpr std::array<Igor::StaticVector<Float, MAX_QUAD_N>, MAX_QUAD_N> g
 });
 
 }  // namespace detail
-
-#endif  // NS_FVM_QUADRATURE_TABLES_HPP_

@@ -1,7 +1,8 @@
 TESTS = Taylor-Green-MG-8 Taylor-Green-MG-16 Taylor-Green-MG-64 Taylor-Green-MG-128 Taylor-Green-MG-100 \
         Taylor-Green-FFT-8 Taylor-Green-FFT-16 Taylor-Green-FFT-64 Taylor-Green-FFT-128 Taylor-Green-FFT-100 \
         Multigrid-32 Multigrid-64 Multigrid-128 Multigrid-512 Multigrid-1024 \
-        Polar-Couette-8 Polar-Couette-16 Polar-Couette-32
+        Polar-Couette-8 Polar-Couette-16 Polar-Couette-32 \
+        Boundary
 
 # ------------------------------------------------------------------------------
 strip_digits = ${subst 9,,${subst 8,,${subst 7,,${subst 6,,${subst 5,,${subst 4,,${subst 3,,${subst 2,,${subst 1,,${subst 0,,$1}}}}}}}}}}

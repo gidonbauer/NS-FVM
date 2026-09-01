@@ -1,5 +1,4 @@
-#ifndef NS_FVM_GRID_HPP_
-#define NS_FVM_GRID_HPP_
+#pragma once
 
 #include <atomic>
 #include <cstdint>
@@ -432,5 +431,3 @@ constexpr void fill(FaceVector<Float, LAYOUT> v, Float value) {
   fill(v.x, value);
   fill(v.y, value);
 }
-
-#endif  // NS_FVM_GRID_HPP_

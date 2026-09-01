@@ -1,5 +1,4 @@
-#ifndef NS_FVM_MULTIGRID_POISSON_HPP_
-#define NS_FVM_MULTIGRID_POISSON_HPP_
+#pragma once
 
 #include <Igor/Math.hpp>
 
@@ -330,5 +329,3 @@ class MultigridSolver {
   [[nodiscard]] constexpr auto num_cycles() const noexcept -> Index { return m_num_cycles; }
   [[nodiscard]] constexpr auto res() const noexcept -> Float { return m_res; }
 };
-
-#endif  // NS_FVM_MULTIGRID_POISSON_HPP_

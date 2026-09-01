@@ -1,5 +1,4 @@
-#ifndef NS_FVM_MAC_POLAR_HPP_
-#define NS_FVM_MAC_POLAR_HPP_
+#pragma once
 
 /* * * * * * * * * * * *\
 *      x => theta       *
@@ -132,5 +131,3 @@ constexpr void correct_velocity(const Grid<Float, LAYOUT>& grid,
 }
 
 }  // namespace Polar
-
-#endif  // NS_FVM_MAC_POLAR_HPP_

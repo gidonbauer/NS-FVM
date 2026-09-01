@@ -1,5 +1,4 @@
-#ifndef NS_FVM_MAC_HPP_
-#define NS_FVM_MAC_HPP_
+#pragma once
 
 #include <Igor/Math.hpp>
 
@@ -100,5 +99,3 @@ constexpr auto adjust_dt(const Grid<Float, LAYOUT>& grid,
       CFL * 0.25 * Igor::sqr(h) * rho / mu,
   });
 }
-
-#endif  // NS_FVM_MAC_HPP_

@@ -1,5 +1,4 @@
-#ifndef NS_FVM_COMMON_HPP_
-#define NS_FVM_COMMON_HPP_
+#pragma once
 
 #include <Igor/Math.hpp>
 
@@ -41,5 +40,3 @@ constexpr auto stats(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT
   if (sum2 > 0.0) { s.stddev = std::sqrt(sum2 / volume); }
   return s;
 }
-
-#endif  // NS_FVM_COMMON_HPP_

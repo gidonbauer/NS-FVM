@@ -1,5 +1,4 @@
-#ifndef NS_FVM_BOUNDARY_CONDITIONS_HPP_
-#define NS_FVM_BOUNDARY_CONDITIONS_HPP_
+#pragma once
 
 #include <variant>
 
@@ -15,17 +14,24 @@ struct Dirichlet {
   constexpr void apply_left(const Grid<Float, LAYOUT>& grid,
                             FaceVector<Float, LAYOUT> uf,
                             Float t) const noexcept {
-    grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=, this](Index, Index j) {
-      const Float U_bc =
-          std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(grid.ym(j), t);
-      uf.x(-1, j) = U_bc;
-      uf.x(0, j)  = U_bc;
-    });
-    grid.foreach_range(0, 1, -uf.y.nghost(), uf.y.ny() + uf.y.nghost(), [=, this](Index, Index j) {
-      const Float V_bc =
-          std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(grid.y(j), t);
-      uf.y(-1, j) = 2.0 * V_bc - uf.y(0, j);
-    });
+    IGOR_ASSERT(grid.nghost() >= 1, "Expected at least one ghost cell, but got {}", grid.nghost());
+
+    grid.foreach_range(
+        -uf.x.nghost(), 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=, this](Index i, Index j) {
+          const Float U_bc =
+              std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(grid.ym(j), t);
+          uf.x(i, j) = U_bc;
+        });
+    grid.foreach_range(
+        -uf.y.nghost(), 0, -uf.y.nghost(), uf.y.ny() + uf.y.nghost(), [=, this](Index i, Index j) {
+          const Float V_bc =
+              std::holds_alternative<Float>(V) ? std::get<0>(V) : std::get<1>(V)(grid.y(j), t);
+          if (i == -1) {
+            uf.y(i, j) = 2.0 * V_bc - uf.y(0, j);
+          } else {
+            uf.y(i, j) = V_bc;
+          }
+        });
   }
 
   // = RIGHT =======
@@ -33,6 +39,7 @@ struct Dirichlet {
   constexpr void apply_right(const Grid<Float, LAYOUT>& grid,
                              FaceVector<Float, LAYOUT> uf,
                              Float t) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=, this](Index, Index j) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(grid.ym(j), t);
@@ -51,6 +58,7 @@ struct Dirichlet {
   constexpr void apply_bottom(const Grid<Float, LAYOUT>& grid,
                               FaceVector<Float, LAYOUT> uf,
                               Float t) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=, this](Index i, Index) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(grid.x(i), t);
@@ -68,6 +76,7 @@ struct Dirichlet {
   template <Layout LAYOUT>
   constexpr void
   apply_top(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> uf, Float t) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=, this](Index i, Index) {
       const Float U_bc =
           std::holds_alternative<Float>(U) ? std::get<0>(U) : std::get<1>(U)(grid.x(i), t);
@@ -90,6 +99,7 @@ struct Neumann {
   constexpr void apply_left(const Grid<Float, LAYOUT>& grid,
                             FaceVector<Float, LAYOUT> uf,
                             Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     if (clipped) {
       grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=](Index, Index j) {
         uf.x(-1, j) = std::min(uf.x(0, j), 0.0);
@@ -108,6 +118,7 @@ struct Neumann {
   constexpr void apply_right(const Grid<Float, LAYOUT>& grid,
                              FaceVector<Float, LAYOUT> uf,
                              Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     if (clipped) {
       grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=](Index, Index j) {
         uf.x(grid.nx() + 1, j) = std::max(uf.x(grid.nx(), j), 0.0);
@@ -126,6 +137,7 @@ struct Neumann {
   constexpr void apply_bottom(const Grid<Float, LAYOUT>& grid,
                               FaceVector<Float, LAYOUT> uf,
                               Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=](Index i, Index) {
       uf.x(i, -1) = uf.x(i, 0);
     });
@@ -144,6 +156,7 @@ struct Neumann {
   constexpr void apply_top(const Grid<Float, LAYOUT>& grid,
                            FaceVector<Float, LAYOUT> uf,
                            Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=](Index i, Index) {
       uf.x(i, grid.ny()) = uf.x(i, grid.ny() - 1);
     });
@@ -165,6 +178,7 @@ struct Periodic {
   constexpr void apply_left(const Grid<Float, LAYOUT>& grid,
                             FaceVector<Float, LAYOUT> uf,
                             Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=](Index, Index j) {
       uf.x(-1, j) = uf.x(grid.nx() - 1, j);
     });
@@ -177,6 +191,7 @@ struct Periodic {
   constexpr void apply_right(const Grid<Float, LAYOUT>& grid,
                              FaceVector<Float, LAYOUT> uf,
                              Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(0, 1, -uf.x.nghost(), uf.x.ny() + uf.x.nghost(), [=](Index, Index j) {
       uf.x(grid.nx() + 1, j) = uf.x(1, j);
     });
@@ -189,6 +204,7 @@ struct Periodic {
   constexpr void apply_bottom(const Grid<Float, LAYOUT>& grid,
                               FaceVector<Float, LAYOUT> uf,
                               Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=](Index i, Index) {
       uf.x(i, -1) = uf.x(i, grid.ny() - 1);
     });
@@ -201,6 +217,7 @@ struct Periodic {
   constexpr void apply_top(const Grid<Float, LAYOUT>& grid,
                            FaceVector<Float, LAYOUT> uf,
                            Float /*t*/) const noexcept {
+    IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
     grid.foreach_range(-uf.x.nghost(), uf.x.nx() + uf.x.nghost(), 0, 1, [=](Index i, Index) {
       uf.x(i, grid.ny()) = uf.x(i, 0);
     });
@@ -228,7 +245,6 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
                            const VelocityBConds<Float>& bconds,
                            FaceVector<Float, LAYOUT> uf,
                            Float t = -1.0) {
-  IGOR_ASSERT(grid.nghost() == 1, "Expected exactly one ghost cell, but got {}", grid.nghost());
   std::visit([&](auto&& bcond) { bcond.apply_left(grid, uf, t); }, bconds.left);
   std::visit([&](auto&& bcond) { bcond.apply_right(grid, uf, t); }, bconds.right);
   std::visit([&](auto&& bcond) { bcond.apply_bottom(grid, uf, t); }, bconds.bottom);
@@ -293,5 +309,3 @@ constexpr void apply_dirichlet_bconds(const Grid<Float, LAYOUT>& grid,
     }
   });
 }
-
-#endif  // NS_FVM_BOUNDARY_CONDITIONS_HPP_
