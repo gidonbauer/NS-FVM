@@ -1,7 +1,15 @@
 #include <charconv>
 #include <numbers>
 
+#if !FFT_POISSON && !MG_POISSON || FFT_POISSON && MG_POISSON
+#error "Exactly one of FFT_POISSON or MG_POISSON must be true"
+#endif
+
+#if FFT_POISSON
 #include <poisfft.h>
+#else
+#include "MultigridPoisson.hpp"
+#endif
 
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
@@ -119,7 +127,11 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto output_dir = get_output_directory("test/output");
+#if FFT_POISSON
+  const std::string output_dir = "./test/output/Taylor-Green-FFT-" + std::to_string(N) + '/';
+#else
+  const std::string output_dir = "./test/output/Taylor-Green-MG-" + std::to_string(N) + '/';
+#endif
   if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 1);
@@ -140,16 +152,20 @@ auto main(int argc, char** argv) -> int {
   Float dt   = 0.0;
   Float t    = 0.0;
 
-  // = Linear solver ===============================================================================
+#if FFT_POISSON
   const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
   const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
   const std::array<int, 4> BCs  = {
       PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
   PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
-  // = Linear solver ===============================================================================
+#else
+  MultigridSolver solver(grid);
+  Float mg_res    = 0.0;
+  Index mg_cycles = 0;
+#endif
 
-  const VelocityBConds<Float> bconds{
+  const BConds<Float> bconds{
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Periodic{},
@@ -160,7 +176,7 @@ auto main(int argc, char** argv) -> int {
       FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
   grid.foreach_face_i<Dimension::Y>(
       FOREACH_FUNC { u.y(i, j) = v_analytical(grid.xm(i), grid.y(j), 0.0); });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, bconds, bconds, u);
   interpolate(grid, u, ui);
 
   VTKWriter writer(output_dir, grid);
@@ -173,19 +189,22 @@ auto main(int argc, char** argv) -> int {
   Stats u_stats   = stats(grid, u.x);
   Stats v_stats   = stats(grid, u.y);
   Stats div_stats = stats(grid, div);
-
-  Float p_max     = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
-  Float u_max     = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
-  Float v_max     = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
   monitor.add_variable(&dt, "dt");
-  monitor.add_variable(&p_max, "absmax(p)");
-  monitor.add_variable(&u_max, "absmax(u)");
-  monitor.add_variable(&v_max, "absmax(v)");
+  monitor.add_variable(&p_stats.min, "min(p)");
+  monitor.add_variable(&p_stats.max, "max(p)");
+  monitor.add_variable(&u_stats.min, "min(u)");
+  monitor.add_variable(&u_stats.max, "max(u)");
+  monitor.add_variable(&v_stats.min, "min(v)");
+  monitor.add_variable(&v_stats.max, "max(v)");
   monitor.add_variable(&div_max, "absmax(div)");
+#if MG_POISSON
+  monitor.add_variable(&mg_res, "residual(MG)");
+  monitor.add_variable(&mg_cycles, "cycles(MG)");
+#endif
   monitor.write();
 
   IGOR_TIME_SCOPE("Taylor-Green-" + std::to_string(N))
@@ -201,14 +220,23 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, bconds, bconds, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
+#if FFT_POISSON
       solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+#else
+      if (!solver.solve(dp, div)) {
+        Igor::Warn("Multogrid solver did not converge after {} cycles: res = {:.8e}",
+                   solver.num_cycles(),
+                   solver.res());
+      }
+      mg_res    = solver.res();
+      mg_cycles = solver.num_cycles();
+#endif
       apply_neumann_bconds(grid, dp);
-      // shift_dp_to_zero(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -221,10 +249,6 @@ auto main(int argc, char** argv) -> int {
     u_stats    = stats(grid, u.x);
     v_stats    = stats(grid, u.y);
     div_stats  = stats(grid, div);
-
-    p_max      = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
-    u_max      = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
-    v_max      = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
@@ -245,16 +269,19 @@ auto main(int argc, char** argv) -> int {
     L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
   });
 
+  bool any_failed = false;
   if (L1_u > 1.1 * Expected::L1u(N)) {
     Igor::Error("u error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1u(N),
                 L1_u);
-    return 1;
+    any_failed = true;
   }
   if (L1_v > 1.1 * Expected::L1v(N)) {
     Igor::Error("v error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1v(N),
                 L1_v);
-    return 1;
+    any_failed = true;
   }
+
+  return any_failed ? 1 : 0;
 }

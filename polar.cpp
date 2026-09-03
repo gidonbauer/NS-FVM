@@ -91,17 +91,24 @@ auto main(int argc, char** argv) -> int {
   MultigridSolver solver(grid);
   // = Linear solver ===============================================================================
 
-  const VelocityBConds<Float> bconds{
+  const BConds<Float> u_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
-      .bottom = Dirichlet<Float>{.U = U_wall, .V = 0.0},
-      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+      .bottom = Dirichlet<Float>{.val = U_wall},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+
+  const BConds<Float> v_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
   };
 
   // Initial condition: the analytic fully-developed profile.
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
   grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
   grid.foreach_a(FOREACH_FUNC {
@@ -150,7 +157,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);

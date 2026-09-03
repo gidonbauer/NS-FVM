@@ -96,7 +96,7 @@ auto main(int argc, char** argv) -> int {
   }
   Index NX              = NY;
 
-  const auto output_dir = get_output_directory();
+  const auto output_dir = "./test/output/Polar-Couette-" + std::to_string(NY);
   if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float, Layout::C> grid(theta_min, theta_max, NX, r_min, r_max, NY, 1, Coordinates::POLAR);
@@ -124,16 +124,23 @@ auto main(int argc, char** argv) -> int {
 
   MultigridSolver solver(grid);
 
-  const VelocityBConds<Float> bconds{
+  const BConds<Float> u_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
-      .bottom = Dirichlet<Float>{.U = U_wall, .V = 0.0},
-      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+      .bottom = Dirichlet<Float>{.val = U_wall},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+
+  const BConds<Float> v_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
   };
 
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
   grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
   grid.foreach_a(FOREACH_FUNC {
@@ -182,7 +189,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);

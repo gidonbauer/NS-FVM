@@ -26,7 +26,7 @@ constexpr Float y_max    = 1.0;
 constexpr Float rho      = 1.0;
 constexpr Float mu       = 1.0;
 constexpr Float Uavg     = 1.0;
-constexpr Float D        = 1e-3;
+constexpr Float D        = 0.0;  // 1e-3;
 
 constexpr Float CFL      = 0.7;
 constexpr Float tend     = 5e-2;
@@ -73,7 +73,7 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float> grid(x_min, x_max, N, y_min, y_max, N, 1);
+  Grid<Float> grid(x_min, x_max, N, y_min, y_max, N, 3);
 
   auto u_old = grid.alloc_face_vector();
   auto u     = grid.alloc_face_vector();
@@ -103,16 +103,23 @@ auto main(int argc, char** argv) -> int {
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
   // = Linear solver ===============================================================================
 
-  const VelocityBConds<Float> bconds{
-      .left   = Dirichlet<Float>{.U = [](Float y, Float /*t*/) { return inlet_u(y); }, .V = 0.0},
-      .right  = Neumann{.clipped = true},
-      .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
-      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+  const BConds<Float> u_bconds{
+      .left   = Dirichlet<Float>{.val = [](Float y, Float /*t*/) { return inlet_u(y); }},
+      .right  = Neumann{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+
+  const BConds<Float> v_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Neumann{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
   };
 
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
   grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
   grid.foreach_i(FOREACH_FUNC {
@@ -167,7 +174,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u);
       correct_outflow(grid, u);
 
       // 2) Pressure correction

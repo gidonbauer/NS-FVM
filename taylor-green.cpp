@@ -128,7 +128,7 @@ auto main(int argc, char** argv) -> int {
   MultigridSolver mg_solver(grid);
   // = Linear solver ===============================================================================
 
-  const VelocityBConds<Float> bconds{
+  const BConds<Float> bconds{
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Periodic{},
@@ -139,7 +139,7 @@ auto main(int argc, char** argv) -> int {
       FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
   grid.foreach_face_i<Dimension::Y>(
       FOREACH_FUNC { u.y(i, j) = v_analytical(grid.xm(i), grid.y(j), 0.0); });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, bconds, bconds, u);
   interpolate(grid, u, ui);
 
   VTKWriter writer(output_dir, grid);
@@ -185,7 +185,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, bconds, bconds, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);

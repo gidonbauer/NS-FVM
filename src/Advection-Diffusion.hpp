@@ -10,22 +10,22 @@ template <typename Float, Layout LAYOUT>
 constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
-                                   // const FaceVector<Float, LAYOUT> sL,
-                                   // const FaceVector<Float, LAYOUT> sR,
+                                   const FaceVector<Float, LAYOUT> sL,
+                                   const FaceVector<Float, LAYOUT> sR,
                                    Float D,
                                    FaceVector<Float, LAYOUT> F) {
   grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
     // const auto si   = (s(i, j) + s(i - 1, j)) / 2.0;
-    const auto si = u.x(i, j) >= 0.0 ? s(i - 1, j) : s(i, j);
-    // const auto si   = u.x(i, j) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
+    // const auto si = u.x(i, j) >= 0.0 ? s(i - 1, j) : s(i, j);
+    const auto si   = u.x(i, j) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
     const auto dsdx = (s(i, j) - s(i - 1, j)) / grid.dx();
     F.x(i, j)       = -si * u.x(i, j) + D * dsdx;
   });
 
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
     // const auto si   = (s(i, j) + s(i, j - 1)) / 2.0;
-    const auto si = u.y(i, j) >= 0.0 ? s(i, j - 1) : s(i, j);
-    // const auto si   = u.y(i, j) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
+    // const auto si = u.y(i, j) >= 0.0 ? s(i, j - 1) : s(i, j);
+    const auto si   = u.y(i, j) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
     const auto dsdy = (s(i, j) - s(i, j - 1)) / grid.dy();
     F.y(i, j)       = -si * u.y(i, j) + D * dsdy;
   });
@@ -127,13 +127,12 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
                                    const Scalar<Float, LAYOUT> s,
                                    Float D,
                                    FaceVector<Float, LAYOUT> F) {
-  // static auto sL = grid.alloc_face_vector();
-  // static auto sR = grid.alloc_face_vector();
-  // weno_reconstruction(grid, s, sL, sR);
+  static auto sL = grid.alloc_face_vector();
+  static auto sR = grid.alloc_face_vector();
+  weno_reconstruction(grid, s, sL, sR);
 
   switch (grid.coords()) {
-    // case Coordinates::CARTESIAN: return Cartesian::advection_calc_flux(grid, u, s, sL, sR, D, F);
-    case Coordinates::CARTESIAN: return Cartesian::advection_calc_flux(grid, u, s, D, F);
+    case Coordinates::CARTESIAN: return Cartesian::advection_calc_flux(grid, u, s, sL, sR, D, F);
     case Coordinates::POLAR:     Igor::Todo("Calculate advection flux in polar coordinates.");
   }
   Igor::Panic("Unreachable");

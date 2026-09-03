@@ -98,11 +98,18 @@ auto main(int argc, char** argv) -> int {
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
   // = Linear solver ===============================================================================
 
-  const VelocityBConds<Float> bconds{
-      .left   = Dirichlet<Float>{.U = [](Float y, Float /*t*/) { return inlet_u(y); }, .V = 0.0},
-      .right  = Neumann{.clipped = true},
-      .bottom = Dirichlet<Float>{.U = 0.0, .V = 0.0},
-      .top    = Dirichlet<Float>{.U = 0.0, .V = 0.0},
+  const BConds<Float> u_bconds{
+      .left   = Dirichlet<Float>{.val = [](Float y, Float /*t*/) { return inlet_u(y); }},
+      .right  = Neumann{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+
+  const BConds<Float> v_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Neumann{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
   };
 
   // Initial condition: the analytic fully-developed profile.
@@ -110,7 +117,7 @@ auto main(int argc, char** argv) -> int {
     u.x(i, j) = 0.0;  // inlet_u(grid.ym(j));
   });
   grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
-  apply_velocity_bconds(grid, bconds, u);
+  apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
   VTKWriter writer(output_dir, grid);
@@ -152,7 +159,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u);
       correct_outflow(grid, u);
 
       // 2) Pressure correction

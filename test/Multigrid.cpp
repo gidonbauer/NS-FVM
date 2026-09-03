@@ -66,7 +66,7 @@ auto main(int argc, char** argv) -> int {
 
   Float L1_fft = -1.0;
   {
-    Igor::ScopeTimer timer("FFT");
+    Igor::ScopeTimer timer("FFT-" + std::to_string(N));
     const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
     const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
     const std::array<int, 4> BCs  = {
@@ -81,7 +81,7 @@ auto main(int argc, char** argv) -> int {
   bool mg_converged = false;
   Float L1_mg       = -1.0;
   {
-    Igor::ScopeTimer timer("Multigrid");
+    Igor::ScopeTimer timer("Multigrid-" + std::to_string(N));
     MultigridSolver solver(grid);
     mg_converged = solver.solve(f_mg, rhs, 1e-6, 100'000);
     L1_mg        = L1error(grid, f_exp, f_mg);
@@ -99,7 +99,7 @@ auto main(int argc, char** argv) -> int {
   // Igor::Debug("L1_fft = {:.8e}", L1_fft);
   // Igor::Debug("L1_mg  = {:.8e}", L1_mg);
 
-  const auto output_dir = get_output_directory("test/output");
+  const auto output_dir = "./test/output/Multigrid-" + std::to_string(N);
   if (!init_output_directory(output_dir)) { return 1; }
   VTKWriter writer(output_dir, grid);
   writer.add_field("f_exp", f_exp);
