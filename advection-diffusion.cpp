@@ -26,7 +26,7 @@ constexpr Float y_max    = 1.0;
 constexpr Float rho      = 1.0;
 constexpr Float mu       = 1.0;
 constexpr Float Uavg     = 1.0;
-constexpr Float D        = 1e-3;
+constexpr Float D        = 0.0;  // 1e-3;
 
 constexpr Float CFL      = 0.7;
 constexpr Float tend     = 5e-2;
@@ -73,7 +73,7 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float> grid(x_min, x_max, N, y_min, y_max, N, 1);
+  Grid<Float> grid(x_min, x_max, N, y_min, y_max, N, 3);
 
   auto u_old = grid.alloc_face_vector();
   auto u     = grid.alloc_face_vector();
