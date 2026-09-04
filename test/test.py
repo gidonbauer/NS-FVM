@@ -53,7 +53,7 @@ def run_cmd(cmd, echo=False):
 
 
 def build_tests(jobs: int = 1, parallel: bool = False) -> bool:
-    targets = list(dict.fromkeys(f"{BIN_DIR}/{t.name}" for t in tests))
+    targets = [f"{BIN_DIR}/{t.name}" for t in tests]
 
     print(f"[INFO] Build {len(targets)} target(s) with -j{jobs}")
     parallel_flag = "PARALLEL=1" if parallel else "PARALLEL=0"
