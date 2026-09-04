@@ -27,34 +27,26 @@ constexpr Float y_min = 0.0;
 constexpr Float y_max = 1.0;
 
 // Properties of water @ 20°C and 1 atm
-constexpr Float rho   = 998.21;     // [kg/m^3]
-constexpr Float mu    = 1.0014e-4;  // [Pa*s]
-constexpr Float kappa = 0.59803;    // [W/(m*K)]
-constexpr Float cV    = 4.1566e3;   // [J/(kg*K)]
+// constexpr Float rho   = 998.21;     // [kg/m^3]
+// constexpr Float mu    = 1.0014e-4;  // [Pa*s]
+// constexpr Float kappa = 0.59803;    // [W/(m*K)]
+// constexpr Float cV    = 4.1566e3;   // [J/(kg*K)]
 
 // Properties of nitrogen @ 20°C and 1 atm
-// constexpr Float rho      = 1.1648;      // [kg/m^3]
-// constexpr Float mu       = 1.7573e-05;  // [Pa*s]
-// constexpr Float kappa    = 0.025473;    // [W/(m*K)]
-// constexpr Float cV       = 0.74307e3;   // [J/(kg*K)]
+constexpr Float rho      = 1.1648;      // [kg/m^3]
+constexpr Float mu       = 1.7573e-05;  // [Pa*s]
+constexpr Float kappa    = 0.025473;    // [W/(m*K)]
+constexpr Float cV       = 0.74307e3;   // [J/(kg*K)]
+
+constexpr Float L        = x_max - x_min;
+constexpr Float Re       = 600.0;  // rho * Uwall * L / mu;
+constexpr Float Uwall    = Re * mu / (rho * L);
+constexpr Float Pe       = Uwall * L * rho * cV / kappa;
 
 constexpr Float CFL      = 0.5;
-constexpr Float tend     = 1e1;
+constexpr Float tend     = 5e3;
 constexpr Float dt_write = tend / 100.0;
-
-// =================================================================================================
-auto F(Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::exp(-2.0 * (mu / rho) * (2.0 * pi) * (2.0 * pi) * t);
-}
-auto u_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::sin(2.0 * pi * x) * std::cos(2.0 * pi * y) * F(t);
-}
-auto v_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return -std::cos(2.0 * pi * x) * std::sin(2.0 * pi * y) * F(t);
-}
+constexpr Float dt_max   = 1e0;
 
 // =================================================================================================
 auto main(int argc, char** argv) -> int {
@@ -101,6 +93,12 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
+  {
+    Igor::Info("Re    = {}", Re);
+    Igor::Info("Pe    = {}", Pe);
+    Igor::Info("Uwall = {}", Uwall);
+  }
+
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
@@ -133,11 +131,8 @@ auto main(int argc, char** argv) -> int {
   // = Linear solver ===============================================================================
   const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
   const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
-  // const std::array<int, 4> BCs  = {
-  //     PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG,
-  //     PoisFFT::NEUMANN_STAG};
-  const std::array<int, 4> BCs = {
-      PoisFFT::PERIODIC, PoisFFT::PERIODIC, PoisFFT::PERIODIC, PoisFFT::PERIODIC};
+  const std::array<int, 4> BCs  = {
+      PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
   PoisFFT::Solver<2, Float> fft_solver(
       ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
   const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
@@ -147,25 +142,37 @@ auto main(int argc, char** argv) -> int {
   MultigridSolver mg_solver(grid);
   // = Linear solver ===============================================================================
 
-  const BConds<Float> bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Periodic{},
-      .top    = Periodic{},
+  const BConds<Float> u_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Dirichlet<Float>{.val = 0.0},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = Uwall},
   };
+  const BConds<Float> v_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Dirichlet<Float>{.val = 0.0},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+  const BConds<Float> T_bconds{
+      .left   = Neumann{},
+      .right  = Dirichlet<Float>{.val = 313.15},
+      .bottom = Neumann{},
+      .top    = Neumann{},
+  };
+  // const BConds<Float> T_bconds{
+  //     .left   = Dirichlet<Float>{.val = 293.15},
+  //     .right  = Dirichlet<Float>{.val = 313.15},
+  //     .bottom = Dirichlet<Float>{.val = 293.15},
+  //     .top    = Dirichlet<Float>{.val = 293.15},
+  // };
 
-  grid.foreach_face_i<Dimension::X>(
-      FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
-  grid.foreach_face_i<Dimension::Y>(
-      FOREACH_FUNC { u.y(i, j) = v_analytical(grid.xm(i), grid.y(j), 0.0); });
-  apply_velocity_bconds(grid, bconds, bconds, u);
+  fill(u, 0.0);
+  apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
   interpolate(grid, u, ui);
 
   fill(T, 293.15);
-  // grid.foreach_i(FOREACH_FUNC {
-  //   const auto r_sqr = Igor::sqr(grid.xm(i) - 0.5) + Igor::sqr(grid.ym(j) - 0.5);
-  //   T(i, j)          = std::exp(-20.0 * r_sqr);
-  // });
+  apply_bconds(grid, T_bconds, T, t);
 
   VTKWriter writer(output_dir, grid);
   writer.add_field("u", ui);
@@ -205,6 +212,7 @@ auto main(int argc, char** argv) -> int {
     dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
         advection_adjust_dt(grid, kappa / (rho * cV), CFL),
+        dt_max,
         dt_write,
         tend - t,
     });
@@ -218,7 +226,7 @@ auto main(int argc, char** argv) -> int {
       // 1) Predictor
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, bconds, bconds, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
 
       // 2) Pressure correction
       calc_div(grid, u, div);
@@ -230,8 +238,7 @@ auto main(int argc, char** argv) -> int {
       } else {
         fft_solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
       }
-      // apply_neumann_bconds(grid, dp);
-      apply_periodic_bconds(grid, dp);
+      apply_neumann_bconds(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -240,7 +247,7 @@ auto main(int argc, char** argv) -> int {
       calc_viscous_temperature_src(grid, u, mu, rho, cV, Tsrc);
       advection_calc_flux(grid, u, T, kappa / (rho * cV), FT);
       advection_update_s(grid, local_dt, FT, Tsrc, T_old, T);
-      apply_periodic_bconds(grid, T);
+      apply_bconds(grid, T_bconds, T, t);
     }
 
     interpolate(grid, u, ui);
@@ -260,20 +267,6 @@ auto main(int argc, char** argv) -> int {
     }
     monitor.write();
   }
-
-  Float L1_u = 0.0;
-  grid.foreach_face_i<Dimension::X, Exec::SERIAL>([=, &L1_u](Index i, Index j) {
-    const auto u_exp  = u_analytical(grid.x(i), grid.ym(j), t);
-    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv(i, j);
-  });
-  Float L1_v = 0.0;
-  grid.foreach_face_i<Dimension::Y, Exec::SERIAL>([=, &L1_v](Index i, Index j) {
-    const auto v_exp  = v_analytical(grid.xm(i), grid.y(j), t);
-    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
-  });
-
-  Igor::Info("L1(u) = {:.8e}", L1_u);
-  Igor::Info("L1(v) = {:.8e}", L1_v);
 
   Igor::Info("Ok.");
 }
