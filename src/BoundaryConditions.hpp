@@ -100,7 +100,7 @@ struct Dirichlet {
                       Float t,
                       std::variant<Float, Float (*)(Float, Float)> value) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           // Linear extrapolation
           const auto s0 = s(i, 0);
           const auto x  = use_xm ? grid.xm(i) : grid.x(i);
@@ -120,7 +120,7 @@ struct Dirichlet {
                      Float t,
                      std::variant<Float, Float (*)(Float, Float)> value) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           // Linear extrapolation
           const auto s1 = s(i, 1);
           const auto x  = use_xm ? grid.xm(i) : grid.x(i);
@@ -141,7 +141,7 @@ struct Dirichlet {
                    Float t,
                    std::variant<Float, Float (*)(Float, Float)> value) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           // Linear extrapolation
           const auto sN = s(i, s.ny() - 1);
           const auto x  = use_xm ? grid.xm(i) : grid.x(i);
@@ -161,10 +161,10 @@ struct Dirichlet {
                   Float t,
                   std::variant<Float, Float (*)(Float, Float)> value) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           // Linear extrapolation
           const auto sN = s(i, s.ny() - 2);
-          const auto x  = use_xm ? grid.xm(j) : grid.x(j);
+          const auto x  = use_xm ? grid.xm(i) : grid.x(i);
           const auto v =
               std::holds_alternative<Float>(value) ? std::get<0>(value) : std::get<1>(value)(x, t);
           for (j = s.ny() - 1; j < s.ny() + s.nghost(); ++j) {
@@ -218,7 +218,7 @@ struct Neumann {
   static constexpr void apply_bottom_offset(const Grid<Float, LAYOUT>& grid,
                                             Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = -s.nghost(); j < 0; ++j) {
             s(i, j) = s(i, -j - 1);
           }
@@ -236,7 +236,7 @@ struct Neumann {
   static constexpr void apply_top_offset(const Grid<Float, LAYOUT>& grid,
                                          Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
             s(i, j) = s(i, 2 * s.ny() - j - 1);
           }
@@ -304,7 +304,7 @@ struct Periodic {
   static constexpr void apply_bottom_offset(const Grid<Float, LAYOUT>& grid,
                                             Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = -s.nghost(); j < 0; ++j) {
             s(i, j) = s(i, s.ny() + j);
           }
@@ -315,7 +315,7 @@ struct Periodic {
   static constexpr void apply_bottom_align(const Grid<Float, LAYOUT>& grid,
                                            Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = -s.nghost(); j < 0; ++j) {
             s(i, j) = s(i, s.ny() + j - 1);
           }
@@ -327,7 +327,7 @@ struct Periodic {
   static constexpr void apply_top_offset(const Grid<Float, LAYOUT>& grid,
                                          Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
             s(i, j) = s(i, s.ny() - j);
           }
@@ -338,7 +338,7 @@ struct Periodic {
   static constexpr void apply_top_align(const Grid<Float, LAYOUT>& grid,
                                         Scalar<Float, LAYOUT> s) noexcept {
     grid.foreach_range(
-        0, s.nx(), 0, 1, FOREACH_FUNC {
+        -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
             s(i, j) = s(i, s.ny() - j + 1);
           }

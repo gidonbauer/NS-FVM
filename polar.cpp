@@ -18,26 +18,18 @@ using Float               = double;
 constexpr Float theta_min = 0.0;
 constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float r_min     = 1.0;
-constexpr Float r_max     = 2.0;
+constexpr Float r_max     = 100.0;
 
+constexpr Float Uinf      = 1.0;
 constexpr Float rho       = 1.0;
-constexpr Float mu        = 1.0;
+constexpr Float mu        = 1e-3;
+
+constexpr Float Re        = Uinf * rho * r_min / mu;
+
 constexpr Float CFL       = 0.7;
-constexpr Float tend      = 1.5;
-
+constexpr Float tend      = 100.0;
 constexpr Float dt_write  = tend / 100.0;
-
-constexpr Float U_wall    = 1.0;
 // = Setup =========================================================================================
-
-// =================================================================================================
-template <typename Float>
-constexpr auto uth_analytical(Float r) -> Float {
-  constexpr auto k1 = -1.0 / 3.0;
-  constexpr auto k2 = 4.0 / 3.0;
-  return k1 * r + k2 / r;
-}
-// =================================================================================================
 
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
@@ -46,33 +38,32 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  Index NY = 0;
-  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), NY).ec != std::errc{} || NY <= 0) {
+  Index N = 0;
+  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
     Igor::Error("{}", usage_str);
     Igor::Error("  Invalid grid size `{}`", argv[1]);
     return 1;
   }
-  Index NX              = NY;
 
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float, Layout::C> grid(theta_min, theta_max, NX, r_min, r_max, NY, 1, Coordinates::POLAR);
+  Igor::Info("Re = {}", Re);
+
+  Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
 
   auto u_old      = grid.alloc_face_vector();
   auto u          = grid.alloc_face_vector();
+  auto ui         = grid.alloc_vector();
 
   auto FUX        = grid.alloc_scalar();
   auto FUY        = grid.alloc_vertex_scalar();
   auto FVX        = grid.alloc_vertex_scalar();
   auto FVY        = grid.alloc_scalar();
 
-  auto ui         = grid.alloc_vector();
+  auto div        = grid.alloc_scalar();
   auto p          = grid.alloc_scalar();
   auto dp         = grid.alloc_scalar();
-  auto div        = grid.alloc_scalar();
-
-  auto ua         = grid.alloc_vector();
 
   Float dt        = 0.0;
   Float t         = 0.0;
@@ -80,43 +71,63 @@ auto main(int argc, char** argv) -> int {
   Index mg_cycles = 0;
   Float mg_res    = 0.0;
 
+#if 0
   const BConds<Float> u_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
-      .bottom = Dirichlet<Float>{.val = U_wall},
-      .top    = Dirichlet<Float>{.val = 0.0},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top =
+          Dirichlet<Float>{.val = [](Float theta, Float /*t*/) { return Uinf * -std::sin(theta); }},
   };
-
   const BConds<Float> v_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Dirichlet<Float>{.val = 0.0},
-      .top    = Dirichlet<Float>{.val = 0.0},
+      .top =
+          Dirichlet<Float>{.val = [](Float theta, Float /*t*/) { return Uinf * std::cos(theta); }},
   };
-
   const BConds<Float> dp_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Neumann{},
       .top    = Neumann{},
   };
+#else
+  const BConds<Float> u_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Neumann{},
+  };
+  const BConds<Float> v_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Neumann{},
+  };
+  const BConds<Float> dp_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Neumann{},
+      .top    = Neumann{},
+  };
+#endif
 
   MultigridSolver solver(grid, dp_bconds);
 
-  // Initial condition: the analytic fully-developed profile.
-  grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
-  grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) = 0.0; });
+  grid.foreach_face_i<Dimension::X>(FOREACH_FUNC {
+    const auto theta = grid.x(i);
+    u.x(i, j)        = Uinf * -std::sin(theta);
+  });
+  grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC {
+    const auto theta = grid.xm(i);
+    u.y(i, j)        = Uinf * std::cos(theta);
+  });
   apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
-  grid.foreach_a(FOREACH_FUNC {
-    ua.x(i, j) = uth_analytical(grid.ym(j));
-    ua.y(i, j) = 0.0;
-  });
-
   VTKWriter writer(output_dir, grid);
   writer.add_field("u", ui);
-  writer.add_field("ua", ua);
   writer.add_field("p", p);
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
@@ -125,18 +136,14 @@ auto main(int argc, char** argv) -> int {
   Stats u_stats   = stats(grid, u.x);
   Stats v_stats   = stats(grid, u.y);
   Stats div_stats = stats(grid, div);
-
-  Float p_max     = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
-  Float u_max     = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
-  Float v_max     = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
   monitor.add_variable(&dt, "dt");
-  monitor.add_variable(&p_max, "absmax(p)");
-  monitor.add_variable(&u_max, "absmax(u)");
-  monitor.add_variable(&v_max, "absmax(v)");
+  monitor.add_variable(&p_stats.max, "max(p)");
+  monitor.add_variable(&u_stats.max, "max(u)");
+  monitor.add_variable(&v_stats.max, "max(v)");
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_res, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
@@ -144,8 +151,11 @@ auto main(int argc, char** argv) -> int {
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
-    dt = adjust_dt(grid, u, rho, mu, CFL);
-    dt = std::min({dt, dt_write, tend - t});
+    dt = std::min({
+        adjust_dt(grid, u, rho, mu, CFL),
+        dt_write,
+        tend - t,
+    });
 
     copy(u, u_old);
 
@@ -161,7 +171,8 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (!solver.solve(dp, div, 1e-3)) {
-        Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
+        Igor::Warn("t={:.8f}: Multigrid solver did not converge after {} cycles: res = {:.8e}",
+                   t,
                    solver.num_cycles(),
                    solver.res());
       }
@@ -180,10 +191,6 @@ auto main(int argc, char** argv) -> int {
     u_stats    = stats(grid, u.x);
     v_stats    = stats(grid, u.y);
     div_stats  = stats(grid, div);
-
-    p_max      = std::max(std::abs(p_stats.min), std::abs(p_stats.max));
-    u_max      = std::max(std::abs(u_stats.min), std::abs(u_stats.max));
-    v_max      = std::max(std::abs(v_stats.min), std::abs(v_stats.max));
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
@@ -192,15 +199,6 @@ auto main(int argc, char** argv) -> int {
     }
     monitor.write();
   }
-
-  Float L1 = 0.0;
-  grid.foreach_range<Exec::SERIAL>(
-      u.x.nx() / 2, u.x.nx() / 2 + 1, 0, u.x.ny(), [=, &L1](Index i, Index j) {
-        const auto uth_exp  = uth_analytical(grid.ym(j));
-        L1                 += std::abs(uth_exp - u.x(i, j)) * grid.dy();
-      });
-  Igor::Info("NY = {}", NY);
-  Igor::Info("L1-error = {:.8e}", L1);
 
   Igor::Info("Ok.");
 }

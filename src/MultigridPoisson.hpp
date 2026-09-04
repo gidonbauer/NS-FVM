@@ -193,14 +193,18 @@ class MultigridSolver {
   constexpr void restrict_residual(const Level& level, const Level& coarse) {
     IGOR_ASSERT(level.grid.nx() / 2 == coarse.grid.nx() && level.grid.ny() / 2 == coarse.grid.ny(),
                 "Expected `coarse` to be the next coarser level but we skipped something.");
-    auto res = level.res;
-    auto rhs = coarse.rhs;
+    auto res         = level.res;
+    auto rhs         = coarse.rhs;
+    const auto fgrid = level.grid;
 
-    // Residual of `level` becomes the rhs of `coarse`
+    // Residual of `level` becomes the rhs of `coarse`. The average must be weighted by the cell
+    // volumes, otherwise the restriction is not conservative on non-uniform volumes (polar).
     coarse.grid.foreach_i(FOREACH_FUNC {
-      rhs(i, j) = (res(2 * i, 2 * j) + res(2 * i + 1, 2 * j) + res(2 * i, 2 * j + 1) +
-                   res(2 * i + 1, 2 * j + 1)) /
-                  4.0;
+      const Float wb = fgrid.dv(2 * i, 2 * j);
+      const Float wt = fgrid.dv(2 * i, 2 * j + 1);
+      rhs(i, j)      = (wb * (res(2 * i, 2 * j) + res(2 * i + 1, 2 * j)) +
+                        wt * (res(2 * i, 2 * j + 1) + res(2 * i + 1, 2 * j + 1))) /
+                       (2.0 * (wb + wt));
     });
     make_mean_free(coarse.grid, rhs);
   }
@@ -213,8 +217,8 @@ class MultigridSolver {
     auto csol = coarse.sol;
 
     // apply_neumann_bconds(coarse.grid, coarse.sol);
-    apply_bconds(level.grid, m_bconds, coarse.sol, -1.0);
-    // Biliear interpolation of the coarse correction onto the finer solution
+    apply_bconds(coarse.grid, m_bconds, coarse.sol, -1.0);
+    // Bilinear interpolation of the coarse correction onto the finer solution
     level.grid.foreach_i(FOREACH_FUNC {
       const Index ic  = i / 2;
       const Index jc  = j / 2;
