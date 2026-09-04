@@ -16,8 +16,8 @@ class MultigridSolver {
     Scalar rhs;
     Scalar res;
   };
-
   std::vector<Level> m_levels;
+  BConds<Float> m_bconds;
   Index m_num_iter_pre;
   Index m_num_iter_post;
   Index m_num_iter_coarse;
@@ -48,7 +48,8 @@ class MultigridSolver {
     auto rhs            = level.rhs;
     auto res            = level.res;
 
-    apply_neumann_bconds(level.grid, sol);
+    // apply_neumann_bconds(level.grid, sol);
+    apply_bconds(level.grid, m_bconds, sol, -1.0);
     std::atomic<Float> max_res = 0.0;
     switch (level.grid.coords()) {
       case Coordinates::CARTESIAN:
@@ -85,7 +86,8 @@ class MultigridSolver {
 
     // Do exactly num_iter iterations of the Gauss-Seidel algorithm
     for (Index iter = 0; iter < num_iter; ++iter) {
-      apply_neumann_bconds(level.grid, sol);
+      // apply_neumann_bconds(level.grid, sol);
+      apply_bconds(level.grid, m_bconds, sol, -1.0);
 #ifndef NS_FVM_PARALLEL
       level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
         sol(i, j) = ((sol(i - 1, j) + sol(i + 1, j)) * inv_dx2 +  //
@@ -133,7 +135,8 @@ class MultigridSolver {
 
     // Do exactly num_iter iterations of the Gauss-Seidel algorithm
     for (Index iter = 0; iter < num_iter; ++iter) {
-      apply_neumann_bconds(level.grid, sol);
+      // apply_neumann_bconds(level.grid, sol);
+      apply_bconds(level.grid, m_bconds, sol, -1.0);
 #ifndef NS_FVM_PARALLEL
       level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
         const Float r = level.grid.ym(j);
@@ -209,7 +212,8 @@ class MultigridSolver {
     auto lsol = level.sol;
     auto csol = coarse.sol;
 
-    apply_neumann_bconds(coarse.grid, coarse.sol);
+    // apply_neumann_bconds(coarse.grid, coarse.sol);
+    apply_bconds(level.grid, m_bconds, coarse.sol, -1.0);
     // Biliear interpolation of the coarse correction onto the finer solution
     level.grid.foreach_i(FOREACH_FUNC {
       const Index ic  = i / 2;
@@ -252,12 +256,17 @@ class MultigridSolver {
 
  public:
   constexpr MultigridSolver(const Grid& grid,
+                            BConds<Float> bconds  = {.left   = Neumann{},
+                                                     .right  = Neumann{},
+                                                     .bottom = Neumann{},
+                                                     .top    = Neumann{}},
                             Index min_size        = 2,
                             Index num_iter_pre    = 2,
                             Index num_iter_post   = 2,
                             Index num_iter_coarse = 50,
                             Index max_iter_coarse = 5000)
-      : m_num_iter_pre(num_iter_pre),
+      : m_bconds(std::move(bconds)),
+        m_num_iter_pre(num_iter_pre),
         m_num_iter_post(num_iter_post),
         m_num_iter_coarse(num_iter_coarse),
         m_max_iter_coarse(max_iter_coarse) {

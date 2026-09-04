@@ -80,17 +80,6 @@ auto main(int argc, char** argv) -> int {
   Index mg_cycles = 0;
   Float mg_res    = 0.0;
 
-  // = Linear solver ===============================================================================
-  // const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
-  // const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
-  // const std::array<int, 4> BCs  = {
-  //     PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG,
-  //     PoisFFT::NEUMANN_STAG};
-  // PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(),
-  // PoisFFT::FINITE_DIFFERENCE_2); const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
-  MultigridSolver solver(grid);
-  // = Linear solver ===============================================================================
-
   const BConds<Float> u_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
@@ -104,6 +93,15 @@ auto main(int argc, char** argv) -> int {
       .bottom = Dirichlet<Float>{.val = 0.0},
       .top    = Dirichlet<Float>{.val = 0.0},
   };
+
+  const BConds<Float> dp_bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Neumann{},
+      .top    = Neumann{},
+  };
+
+  MultigridSolver solver(grid, dp_bconds);
 
   // Initial condition: the analytic fully-developed profile.
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = 0.0; });
@@ -169,7 +167,7 @@ auto main(int argc, char** argv) -> int {
       }
       mg_cycles = solver.num_cycles();
       mg_res    = solver.res();
-      apply_neumann_bconds(grid, dp);
+      apply_bconds(grid, dp_bconds, dp, t);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);

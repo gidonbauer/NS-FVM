@@ -20,6 +20,7 @@
 #include "VTKWriter.hpp"
 
 using Float           = double;
+constexpr auto pi     = std::numbers::pi_v<Float>;
 
 constexpr Float x_min = 0.0;
 constexpr Float x_max = 1.0;
@@ -27,33 +28,28 @@ constexpr Float y_min = 0.0;
 constexpr Float y_max = 1.0;
 
 // Properties of water @ 20°C and 1 atm
-constexpr Float rho   = 998.21;     // [kg/m^3]
-constexpr Float mu    = 1.0014e-4;  // [Pa*s]
-constexpr Float kappa = 0.59803;    // [W/(m*K)]
-constexpr Float cV    = 4.1566e3;   // [J/(kg*K)]
+// constexpr Float rho   = 998.21;     // [kg/m^3]
+// constexpr Float mu    = 1.0014e-4;  // [Pa*s]
+// constexpr Float kappa = 0.59803;    // [W/(m*K)]
+// constexpr Float cV    = 4.1566e3;   // [J/(kg*K)]
 
 // Properties of nitrogen @ 20°C and 1 atm
-// constexpr Float rho      = 1.1648;      // [kg/m^3]
-// constexpr Float mu       = 1.7573e-05;  // [Pa*s]
-// constexpr Float kappa    = 0.025473;    // [W/(m*K)]
-// constexpr Float cV       = 0.74307e3;   // [J/(kg*K)]
+constexpr Float rho      = 1.1648;      // [kg/m^3]
+constexpr Float mu       = 1.7573e-05;  // [Pa*s]
+constexpr Float kappa    = 0.025473;    // [W/(m*K)]
+constexpr Float cV       = 0.74307e3;   // [J/(kg*K)]
 
 constexpr Float CFL      = 0.5;
-constexpr Float tend     = 1e1;
+constexpr Float tend     = 1e3;
 constexpr Float dt_write = tend / 100.0;
 
 // =================================================================================================
-auto F(Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::exp(-2.0 * (mu / rho) * (2.0 * pi) * (2.0 * pi) * t);
-}
+auto F(Float t) -> Float { return std::exp(-2.0 * (mu / rho) * (2.0 * pi) * (2.0 * pi) * t); }
 auto u_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return std::sin(2.0 * pi * x) * std::cos(2.0 * pi * y) * F(t);
+  return 1e-2 * std::sin(2.0 * pi * x) * std::cos(2.0 * pi * y) * F(t);
 }
 auto v_analytical(Float x, Float y, Float t) -> Float {
-  constexpr auto pi = std::numbers::pi_v<Float>;
-  return -std::cos(2.0 * pi * x) * std::sin(2.0 * pi * y) * F(t);
+  return 1e-2 * -std::cos(2.0 * pi * x) * std::sin(2.0 * pi * y) * F(t);
 }
 
 // =================================================================================================
@@ -130,6 +126,13 @@ auto main(int argc, char** argv) -> int {
   Index mg_cycles   = 0;
   Float mg_residual = 0.0;
 
+  const BConds<Float> bconds{
+      .left   = Periodic{},
+      .right  = Periodic{},
+      .bottom = Periodic{},
+      .top    = Periodic{},
+  };
+
   // = Linear solver ===============================================================================
   const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
   const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
@@ -144,15 +147,8 @@ auto main(int argc, char** argv) -> int {
 
   // ~~~~~
 
-  MultigridSolver mg_solver(grid);
+  MultigridSolver mg_solver(grid, bconds);
   // = Linear solver ===============================================================================
-
-  const BConds<Float> bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Periodic{},
-      .top    = Periodic{},
-  };
 
   grid.foreach_face_i<Dimension::X>(
       FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
@@ -162,10 +158,10 @@ auto main(int argc, char** argv) -> int {
   interpolate(grid, u, ui);
 
   fill(T, 293.15);
-  // grid.foreach_i(FOREACH_FUNC {
-  //   const auto r_sqr = Igor::sqr(grid.xm(i) - 0.5) + Igor::sqr(grid.ym(j) - 0.5);
-  //   T(i, j)          = std::exp(-20.0 * r_sqr);
-  // });
+  grid.foreach_i(FOREACH_FUNC {
+    const auto r_sqr  = Igor::sqr(grid.xm(i) - 0.5) + Igor::sqr(grid.ym(j) - 0.5);
+    T(i, j)          += std::exp(-20.0 * r_sqr);
+  });
 
   VTKWriter writer(output_dir, grid);
   writer.add_field("u", ui);
@@ -224,14 +220,13 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (multigrid) {
-        mg_solver.solve(dp, div);
+        mg_solver.solve(dp, div, 1e-8);
         mg_cycles   = mg_solver.num_cycles();
         mg_residual = mg_solver.res();
       } else {
         fft_solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
       }
-      // apply_neumann_bconds(grid, dp);
-      apply_periodic_bconds(grid, dp);
+      apply_bconds(grid, bconds, dp, t);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -240,7 +235,7 @@ auto main(int argc, char** argv) -> int {
       calc_viscous_temperature_src(grid, u, mu, rho, cV, Tsrc);
       advection_calc_flux(grid, u, T, kappa / (rho * cV), FT);
       advection_update_s(grid, local_dt, FT, Tsrc, T_old, T);
-      apply_periodic_bconds(grid, T);
+      apply_bconds(grid, bconds, T, t);
     }
 
     interpolate(grid, u, ui);

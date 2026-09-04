@@ -152,25 +152,25 @@ auto main(int argc, char** argv) -> int {
   Float dt   = 0.0;
   Float t    = 0.0;
 
-#if FFT_POISSON
-  const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
-  const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
-  const std::array<int, 4> BCs  = {
-      PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
-  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
-  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
-#else
-  MultigridSolver solver(grid);
-  Float mg_res    = 0.0;
-  Index mg_cycles = 0;
-#endif
-
   const BConds<Float> bconds{
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Periodic{},
       .top    = Periodic{},
   };
+
+#if FFT_POISSON
+  const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
+  const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
+  const std::array<int, 4> BCs  = {
+      PoisFFT::PERIODIC, PoisFFT::PERIODIC, PoisFFT::PERIODIC, PoisFFT::PERIODIC};
+  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
+  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
+#else
+  MultigridSolver solver(grid, bconds);
+  Float mg_res    = 0.0;
+  Index mg_cycles = 0;
+#endif
 
   grid.foreach_face_i<Dimension::X>(
       FOREACH_FUNC { u.x(i, j) = u_analytical(grid.x(i), grid.ym(j), 0.0); });
@@ -236,7 +236,7 @@ auto main(int argc, char** argv) -> int {
       mg_res    = solver.res();
       mg_cycles = solver.num_cycles();
 #endif
-      apply_neumann_bconds(grid, dp);
+      apply_periodic_bconds(grid, dp);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
