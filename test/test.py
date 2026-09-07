@@ -86,7 +86,9 @@ def run_test(cmd: List[str], name: str, echo: bool = False) -> TestResult:
 
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         start = time.perf_counter()
-        proc = subprocess.Popen(cmd, stdout=out, stderr=err, env={"OMP_NUM_THREADS": "4"})
+        env = dict(os.environ)
+        env["OMP_NUM_THREADS"] = "4"
+        proc = subprocess.Popen(cmd, stdout=out, stderr=err, env=env)
         _pid, status, ru = os.wait4(proc.pid, 0)
         runtime = time.perf_counter() - start
 
