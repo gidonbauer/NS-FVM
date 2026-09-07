@@ -140,13 +140,11 @@ auto main(int argc, char** argv) -> int {
     L1               += std::abs(s_exp - s(i, j)) * grid.dv(i, j);
   });
 
-  Igor::Info("L1({}) = {:.8e}", N, L1);
-  // Igor::Info("L1_exp({}) = {:.8e}", N, Expected::L1(N));
-  // if (L1 > 1.1 * Expected::L1(N)) {
-  //   Igor::Error("s error does not match expected value: expected {:.8e} but got {:.8e}",
-  //               Expected::L1(N),
-  //               L1);
-  //   return 1;
-  // }
+  if (L1 > 1.1 * Expected::L1(N)) {
+    Igor::Error("s error does not match expected value: expected {:.8e} but got {:.8e}",
+                Expected::L1(N),
+                L1);
+    return 1;
+  }
   return 0;
 }

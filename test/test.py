@@ -159,13 +159,16 @@ def render_results(results: Results, file: TextIO = sys.stdout) -> None:
     color = file.isatty()
 
     rows: List[Tuple[str, bool, str]] = []
+    num_passed = 0
     for (name, inp), res in results.items():
         metrics = (
             f"wall={res.runtime:.2f}s, "
             f"cpu={res.cpu_time:.2f}s, "
             f"mem={format_bytes(res.max_rss)}"
         )
-        rows.append((run_name(name, inp), res.ret == 0, metrics))
+        ok = res.ret == 0
+        rows.append((run_name(name, inp), ok, metrics))
+        num_passed += ok
 
     if not rows:
         return
@@ -188,6 +191,14 @@ def render_results(results: Results, file: TextIO = sys.stdout) -> None:
             status = f"{GREEN if ok else RED}{status}{RESET}"
         print(f" {name} {dots} {status}", file=file)
         print(f" {'':{METRICS_INDENT}}{metrics}", file=file)
+
+    if color:
+        color_begin = f"{GREEN if num_passed == len(rows) else RED}"
+        color_end   = f"{RESET}"
+    else:
+        color_begin = ""
+        color_end   = ""
+    print(f"\n Passed {color_begin}{num_passed}/{len(rows)}{color_end}")
 
     print(f" {border}", file=file)
 
