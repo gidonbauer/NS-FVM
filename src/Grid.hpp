@@ -403,6 +403,11 @@ constexpr void copy(const Scalar<Float, LAYOUT> src, Scalar<Float, LAYOUT> dst) 
 }
 
 template <typename Float, Layout LAYOUT>
+constexpr void copy(const VertexScalar<Float, LAYOUT> src, VertexScalar<Float, LAYOUT> dst) {
+  std::copy_n(src.data(), src.size(), dst.data());
+}
+
+template <typename Float, Layout LAYOUT>
 constexpr void copy(const Vector<Float, LAYOUT> src, Vector<Float, LAYOUT> dst) {
   copy(src.x, dst.x);
   copy(src.y, dst.y);
