@@ -4,6 +4,18 @@
 
 #include "Grid.hpp"
 
+// =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr void interpolate(const Grid<Float, LAYOUT>& grid,
+                           const FaceVector<Float, LAYOUT> uf,
+                           Vector<Float, LAYOUT> ui) {
+  grid.foreach_i(FOREACH_FUNC {
+    ui.x(i, j) = (uf.right(i, j) + uf.left(i, j)) / 2.0;
+    ui.y(i, j) = (uf.top(i, j) + uf.bottom(i, j)) / 2.0;
+  });
+}
+
+// =================================================================================================
 template <typename Float>
 struct Stats {
   Float min;

@@ -19,12 +19,16 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
                                    Float D,
                                    FaceVector<Float, LAYOUT> F) {
   grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
+    // const auto si = (s(i, j) + s(i - 1, j)) / 2.0;
+    // const auto si = u.x(i, j) >= 0.0 ? s(i - 1, j) : s(i, j);
     const auto si   = u.x(i, j) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
     const auto dsdx = (s(i, j) - s(i - 1, j)) / grid.dx();
     F.x(i, j)       = -si * u.x(i, j) + D * dsdx;
   });
 
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
+    // const auto si = (s(i, j) + s(i, j - 1)) / 2.0;
+    // const auto si = u.y(i, j) >= 0.0 ? s(i, j - 1) : s(i, j);
     const auto si   = u.y(i, j) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
     const auto dsdy = (s(i, j) - s(i, j - 1)) / grid.dy();
     F.y(i, j)       = -si * u.y(i, j) + D * dsdy;
@@ -126,8 +130,9 @@ constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
 
 template <typename Float, Layout LAYOUT>
 constexpr auto advection_adjust_dt(const Grid<Float, LAYOUT>& grid, Float D, Float CFL) -> Float {
+  IGOR_ASSERT(D >= 0.0, "Diffusion coefficient cannot be negative but is {}", D);
   const auto h = std::min(grid.dx(), grid.dy());
-  return CFL * 0.25 * Igor::sqr(h) / D;
+  return D > 0.0 ? CFL * 0.25 * Igor::sqr(h) / D : std::numeric_limits<Float>::max();
 }
 
 template <typename Float, Layout LAYOUT>

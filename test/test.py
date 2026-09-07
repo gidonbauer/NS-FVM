@@ -35,13 +35,19 @@ class TestCase:
     name: str
     input: Union[List[int], None]
 
+<<<<<<< Updated upstream
+ALL_TESTS = [
+=======
 tests = [
-    TestCase("Taylor-Green-MG",  [8, 16, 64]),
-    TestCase("Taylor-Green-FFT", [8, 16, 64]),
-    TestCase("Multigrid",        [32, 64, 128, 512, 1024]),
-    TestCase("Polar-Couette",    [8, 16, 32]),
-    TestCase("Channel-MG",       [16, 32, 64]),
-    TestCase("Channel-FFT",      [16, 32, 64]),
+>>>>>>> Stashed changes
+    TestCase("Taylor-Green-MG",     [8, 16, 64]),
+    TestCase("Taylor-Green-FFT",    [8, 16, 64]),
+    TestCase("Multigrid",           [32, 64, 128, 512, 1024]),
+    TestCase("Polar-Couette",       [8, 16, 32]),
+    TestCase("Channel-MG",          [16, 32, 64]),
+    TestCase("Channel-FFT",         [16, 32, 64]),
+    TestCase("Advection-Cartesian", [16, 32, 64, 128]),
+    TestCase("Advection-Polar",     [16, 32, 64, 128]),
 ]
 
 
@@ -52,12 +58,12 @@ def run_cmd(cmd, echo=False):
     return ret.returncode, ret.stdout.decode("utf-8"), ret.stderr.decode("utf-8")
 
 
-def build_tests(jobs: int = 1, parallel: bool = False) -> bool:
-    targets = [f"{BIN_DIR}/{t.name}" for t in tests]
+def build_tests(cases: List[TestCase], jobs: int = 1, parallel: bool = False, verbose: bool = False) -> bool:
+    targets = [f"{BIN_DIR}/{case.name}" for case in cases]
 
     print(f"[INFO] Build {len(targets)} target(s) with -j{jobs}")
     parallel_flag = "PARALLEL=1" if parallel else "PARALLEL=0"
-    ret, stdout, stderr = run_cmd(["make", parallel_flag, f"-j{jobs}", *targets])
+    ret, stdout, stderr = run_cmd(["make", parallel_flag, "-B", f"-j{jobs}", *targets], echo=verbose)
     if ret != 0:
         print("Build failed", file=sys.stderr)
         print(stderr, file=sys.stderr)
@@ -76,8 +82,11 @@ def log(msg: str) -> None:
         sys.stdout.flush()
 
 
-def run_test(cmd: List[str], name: str) -> TestResult:
+def run_test(cmd: List[str], name: str, echo: bool = False) -> TestResult:
     log(f"[INFO] Run {name}...")
+
+    if echo:
+        print(f"[CMD] {' '.join(map(shlex.quote, cmd))}")
 
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         start = time.perf_counter()
@@ -102,9 +111,9 @@ def run_test(cmd: List[str], name: str) -> TestResult:
     )
 
 
-def run_tests(jobs: int = 1) -> Results:
+def run_tests(cases: List[TestCase], jobs: int = 1, verbose: bool = False) -> Results:
     work: List[Tuple[Tuple[str, Union[int, None]], List[str]]] = []
-    for test in tests:
+    for test in cases:
         exe = f"{BIN_DIR}/{test.name}"
         if test.input is None:
             work.append(((test.name, None), [exe]))
@@ -113,10 +122,10 @@ def run_tests(jobs: int = 1) -> Results:
                 work.append(((test.name, n), [exe, f"{n}"]))
 
     if jobs == 1:
-        return {key: run_test(cmd, run_name(*key)) for key, cmd in work}
+        return {key: run_test(cmd, run_name(*key), echo=verbose) for key, cmd in work}
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = [pool.submit(run_test, cmd, run_name(*key)) for key, cmd in work]
+        futures = [pool.submit(run_test, cmd, run_name(*key), echo=verbose) for key, cmd in work]
         return {key: fut.result() for (key, _), fut in zip(work, futures)}
 
 
@@ -145,7 +154,7 @@ GREEN = "\033[32m"
 RED   = "\033[31m"
 RESET = "\033[0m"
 STATUS_WIDTH = 4
-MIN_DOTS = 6         # minimum dots next to the longest name
+MIN_DOTS = 30        # minimum dots next to the longest name
 METRICS_INDENT = 6   # spaces before the metrics line, after the leading space
 
 def render_results(results: Results, file: TextIO = sys.stdout) -> None:
@@ -195,7 +204,7 @@ def dump_failed(results: Results):
         print("-"*100)
 
 
-def parse_args(argv: Union[List[str], None] = None) -> argparse.Namespace:
+def parse_args(argv: Union[List[str], None] = None) -> Tuple[argparse.Namespace, List[TestCase]]:
     p = argparse.ArgumentParser(description="Build and run the test suite.")
     p.add_argument(
         "-j", "--jobs",
@@ -208,17 +217,35 @@ def parse_args(argv: Union[List[str], None] = None) -> argparse.Namespace:
         action="store_true",
         help="Build the test case with PARALLEL=1",
     )
+    p.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print executed commands",
+    )
+    p.add_argument(
+            "case_names",
+            nargs="*",
+            help="Test cases to run, default is all test cases."
+    )
     args = p.parse_args(argv)
     if args.jobs < 1:
         p.error("-j must be at least 1")
-    return args
+    if len(args.case_names) == 0:
+        return args, ALL_TESTS
+    else:
+        possible_case_names = [test.name for test in ALL_TESTS]
+        for case_name in args.case_names:
+            if case_name not in possible_case_names:
+                p.error(f"Invalid case name `{case_name}`, possible choices are {', '.join(possible_case_names)}")
+        cases = [test for test in ALL_TESTS if test.name in args.case_names]
+        return args, cases
 
 
 def main():
-    args = parse_args()
-    if not build_tests(args.jobs, args.parallel):
+    args, cases = parse_args()
+    if not build_tests(cases, jobs=args.jobs, parallel=args.parallel, verbose=args.verbose):
         sys.exit(1)
-    results = run_tests(args.jobs)
+    results = run_tests(cases, jobs=args.jobs, verbose=args.verbose)
     render_results(results)
     dump_failed(results)
 

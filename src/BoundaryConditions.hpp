@@ -329,7 +329,7 @@ struct Periodic {
     grid.foreach_range(
         -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
-            s(i, j) = s(i, s.ny() - j);
+            s(i, j) = s(i, j - s.ny());
           }
         });
   }
@@ -340,7 +340,7 @@ struct Periodic {
     grid.foreach_range(
         -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
-            s(i, j) = s(i, s.ny() - j + 1);
+            s(i, j) = s(i, j - s.ny() + 1);
           }
         });
   }

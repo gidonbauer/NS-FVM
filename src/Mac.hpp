@@ -20,18 +20,6 @@ constexpr void calc_div(const Grid<Float, LAYOUT>& grid,
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void interpolate(const Grid<Float, LAYOUT>& grid,
-                           const FaceVector<Float, LAYOUT> uf,
-                           Vector<Float, LAYOUT> ui) {
-  switch (grid.coords()) {
-    case Coordinates::CARTESIAN: return Cartesian::interpolate(grid, uf, ui);
-    case Coordinates::POLAR:     return Polar::interpolate(grid, uf, ui);
-  }
-  Igor::Panic("Unreachable");
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
 constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
                          const FaceVector<Float, LAYOUT> u,
                          const Scalar<Float, LAYOUT> p,
@@ -88,14 +76,23 @@ constexpr auto adjust_dt(const Grid<Float, LAYOUT>& grid,
                          Float rho,
                          Float mu,
                          Float CFL) noexcept -> Float {
-  Float u_max = 0.0;
+  Float ux_max = 0.0;
+  Float uy_max = 0.0;
   grid.template foreach_face_i<Dimension::X, Exec::SERIAL>(
-      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.x(i, j)), u_max); });
+      [=, &ux_max](Index i, Index j) { ux_max = std::max(std::abs(u.x(i, j)), ux_max); });
   grid.template foreach_face_i<Dimension::Y, Exec::SERIAL>(
-      [=, &u_max](Index i, Index j) { u_max = std::max(std::abs(u.y(i, j)), u_max); });
-  const auto h = std::min(grid.dx(), grid.dy());
-  return std::min({
-      CFL * h / u_max,
-      CFL * 0.25 * Igor::sqr(h) * rho / mu,
-  });
+      [=, &uy_max](Index i, Index j) { uy_max = std::max(std::abs(u.y(i, j)), uy_max); });
+
+  // Correction for polar coordinates
+  const auto hx = grid.coords() == Coordinates::POLAR ? grid.ym(0) * grid.dx() : grid.dx();
+  const auto hy = grid.dy();
+
+  // Advection: dt * (|u|/hx + |v|/hy) <= CFL
+  const auto adv = ux_max / hx + uy_max / hy;
+  // Diffusion: dt * 2 * nu * (1/hx^2 + 1/hy^2) <= CFL
+  const auto diff         = 2.0 * (mu / rho) * (1.0 / Igor::sqr(hx) + 1.0 / Igor::sqr(hy));
+
+  constexpr auto no_limit = std::numeric_limits<Float>::max();
+  return std::min(adv > 0.0 ? CFL / adv : no_limit,  //
+                  diff > 0.0 ? CFL / diff : no_limit);
 }
