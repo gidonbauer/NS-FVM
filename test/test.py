@@ -35,11 +35,7 @@ class TestCase:
     name: str
     input: Union[List[int], None]
 
-<<<<<<< Updated upstream
 ALL_TESTS = [
-=======
-tests = [
->>>>>>> Stashed changes
     TestCase("Taylor-Green-MG",     [8, 16, 64]),
     TestCase("Taylor-Green-FFT",    [8, 16, 64]),
     TestCase("Multigrid",           [32, 64, 128, 512, 1024]),
