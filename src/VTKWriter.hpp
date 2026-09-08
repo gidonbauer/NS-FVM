@@ -73,7 +73,7 @@ class VTKWriter {
     }
   }
 
-  void write_header(std::ofstream& out, Float t) {
+  void write_header_and_points(std::ofstream& out, Float t) {
     // = Write VTK header ====
     out << "# vtk DataFile Version 2.0\n";
     out << "State of FluidSolver at time t=" << t << '\n';
@@ -86,6 +86,35 @@ class VTKWriter {
     switch (m_coords) {
       case Coordinates::CARTESIAN: write_points_cartesian(out); break;
       case Coordinates::POLAR:     write_points_polar(out); break;
+    }
+    out << "\n\n";
+
+    // = Write cell data =====
+    out << "CELL_DATA " << m_nx * m_ny << '\n';
+  }
+
+  void write_header_and_points(std::ofstream& out,
+                               const VertexScalar<Float, LAYOUT> x,
+                               const VertexScalar<Float, LAYOUT> y,
+                               Float t) {
+    // = Write VTK header ====
+    out << "# vtk DataFile Version 2.0\n";
+    out << "State of FluidSolver at time t=" << t << '\n';
+    out << "BINARY\n";
+
+    // = Write grid ==========
+    out << "DATASET STRUCTURED_GRID\n";
+    out << "DIMENSIONS " << m_nx + 1 << ' ' << m_ny + 1 << " 1\n";
+    out << "POINTS " << (m_nx + 1) * (m_ny + 1) << " double\n";
+    for (Index j = 0; j < m_ny + 1; ++j) {
+      for (Index i = 0; i < m_nx + 1; ++i) {
+        const double xi = x(i, j);
+        const double yj = y(i, j);
+        const double zk = 0.0;
+        out.write(interpret_as_big_endian_bytes(xi).data(), sizeof(xi));
+        out.write(interpret_as_big_endian_bytes(yj).data(), sizeof(yj));
+        out.write(interpret_as_big_endian_bytes(zk).data(), sizeof(zk));
+      }
     }
     out << "\n\n";
 
@@ -141,6 +170,29 @@ class VTKWriter {
     out << "\n\n";
   }
 
+  constexpr auto open_file(std::string& filename) -> std::ofstream {
+    static Index write_counter = 0;
+    filename = Igor::detail::format("{}/state_{:06d}.vtk", m_output_dir, write_counter++);
+    return std::ofstream(filename);
+  }
+
+  constexpr void write_scalars_and_vectors(std::ofstream& out) {
+    for (size_t i = 0; i < m_scalar_names.size(); ++i) {
+      write_scalar(out, m_scalar_values[i], m_scalar_names[i]);
+    }
+
+    for (size_t i = 0; i < m_vector_names.size(); ++i) {
+      switch (m_coords) {
+        case Coordinates::CARTESIAN:
+          write_vector_cartesian(out, m_vector_values[i], m_vector_names[i]);
+          break;
+        case Coordinates::POLAR:
+          write_vector_polar(out, m_vector_values[i], m_vector_names[i]);
+          break;
+      }
+    }
+  }
+
  public:
   constexpr VTKWriter(std::string output_dir, const Grid<Float, LAYOUT>& grid)
       : m_output_dir(std::move(output_dir)),
@@ -171,36 +223,40 @@ class VTKWriter {
   }
 
   constexpr auto write(Float t = -1.0) -> bool {
-    static Index write_counter = 0;
-    const auto filename =
-        Igor::detail::format("{}/state_{:06d}.vtk", m_output_dir, write_counter++);
-    std::ofstream out(filename);
+    std::string filename;
+    std::ofstream out = open_file(filename);
     if (!out) {
       Igor::Error("Could not open file `{}`: {}", filename, std::strerror(errno));
       return false;
     }
 
-    write_header(out, t);
+    write_header_and_points(out, t);
     if (!out) {
       Igor::Error("Could not write header to `{}`: {}", filename, std::strerror(errno));
       return false;
     }
 
-    for (size_t i = 0; i < m_scalar_names.size(); ++i) {
-      write_scalar(out, m_scalar_values[i], m_scalar_names[i]);
+    write_scalars_and_vectors(out);
+    return out.good();
+  }
+
+  constexpr auto write(const VertexScalar<Float, LAYOUT> x,
+                       const VertexScalar<Float, LAYOUT> y,
+                       Float t = -1.0) -> bool {
+    std::string filename;
+    std::ofstream out = open_file(filename);
+    if (!out) {
+      Igor::Error("Could not open file `{}`: {}", filename, std::strerror(errno));
+      return false;
     }
 
-    for (size_t i = 0; i < m_vector_names.size(); ++i) {
-      switch (m_coords) {
-        case Coordinates::CARTESIAN:
-          write_vector_cartesian(out, m_vector_values[i], m_vector_names[i]);
-          break;
-        case Coordinates::POLAR:
-          write_vector_polar(out, m_vector_values[i], m_vector_names[i]);
-          break;
-      }
+    write_header_and_points(out, x, y, t);
+    if (!out) {
+      Igor::Error("Could not write header to `{}`: {}", filename, std::strerror(errno));
+      return false;
     }
 
+    write_scalars_and_vectors(out);
     return out.good();
   }
 };

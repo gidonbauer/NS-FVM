@@ -495,3 +495,13 @@ constexpr void apply_periodic_bconds(const Grid<Float, LAYOUT>& grid,
   Periodic::apply_bottom_offset(grid, field);
   Periodic::apply_top_offset(grid, field);
 }
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Layout LAYOUT>
+constexpr void fill_ghost(const Grid<Float, LAYOUT>& grid, Scalar<Float, LAYOUT> s, Float value) {
+  const auto fill_func = FOREACH_FUNC { s(i, j) = value; };
+  grid.foreach_range(-s.nghost(), 0, -s.nghost(), s.ny() + s.nghost(), fill_func);
+  grid.foreach_range(s.nx(), s.nx() + s.nghost(), -s.nghost(), s.ny() + s.nghost(), fill_func);
+  grid.foreach_range(-s.nghost(), s.nx() + s.nghost(), -s.nghost(), 0, fill_func);
+  grid.foreach_range(-s.nghost(), s.nx() + s.nghost(), s.ny(), s.ny() + s.nghost(), fill_func);
+}

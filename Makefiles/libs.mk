@@ -7,6 +7,16 @@ IGOR_INC = -I${IGOR_DIR}
 CXX_INC += ${IGOR_INC}
 # = Igor =========================================
 
+# = cpptrace =====================================
+ifeq (${BACKTRACE}, 1)
+	CPPTRACE_DIR ?= /opt/homebrew/opt/cpptrace/
+	CPPTRACE_INC = -I${CPPTRACE_DIR}/include -DIGOR_USE_CPPTRACE -g
+	CPPTRACE_LIB = -L${CPPTRACE_DIR}/lib -Wl,-rpath,${CPPTRACE_DIR}/lib -lcpptrace
+	CXX_INC += ${CPPTRACE_INC}
+	CXX_LIB += ${CPPTRACE_LIB}
+endif
+# = cpptrace =====================================
+
 # = PoisFFT ======================================
 POISFFT_DIR ?= ./Thirdparty/PoisFFT
 POISFFT_INC = -I${POISFFT_DIR}/src

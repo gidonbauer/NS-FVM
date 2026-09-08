@@ -52,3 +52,32 @@ constexpr auto stats(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT
   if (sum2 > 0.0) { s.stddev = std::sqrt(sum2 / volume); }
   return s;
 }
+
+template <typename Float, Layout LAYOUT>
+constexpr auto stats(const Grid<Float, LAYOUT>& grid,
+                     const Scalar<Float, LAYOUT> f,
+                     const Scalar<Float, LAYOUT> metric) -> Stats<Float> {
+  Float min    = std::numeric_limits<Float>::max();
+  Float max    = -std::numeric_limits<Float>::max();
+  Float sum    = 0.0;
+  Float sum2   = 0.0;
+  Float volume = 0.0;
+  grid.foreach_i([=, &min, &max, &sum, &sum2, &volume](Index i, Index j) {
+    volume += metric(i, j) * grid.dv(i, j);
+    sum    += metric(i, j) * grid.dv(i, j) * f(i, j);
+    sum2   += metric(i, j) * grid.dv(i, j) * Igor::sqr(f(i, j));
+    max     = std::max(max, f(i, j));
+    min     = std::min(min, f(i, j));
+  });
+
+  Stats s{
+      .min    = min,
+      .max    = max,
+      .sum    = sum,
+      .stddev = 0.0,
+      .volume = volume,
+  };
+  if (volume > 0.0) { sum2 -= sum * sum / volume; }
+  if (sum2 > 0.0) { s.stddev = std::sqrt(sum2 / volume); }
+  return s;
+}

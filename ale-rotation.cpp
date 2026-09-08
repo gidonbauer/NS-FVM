@@ -1,4 +1,5 @@
 #include <charconv>
+#include <numbers>
 
 #include <poisfft.h>
 
@@ -18,20 +19,21 @@
 
 using Float = double;
 struct Vec2 {
-  Float x, y;
+  Float x;
+  Float y;
 };
 
-constexpr Float x_min    = 0.0;
-constexpr Float x_max    = 1.0;
-constexpr Float y_min    = 0.0;
-constexpr Float y_max    = 1.0;
+constexpr Float pi       = std::numbers::pi_v<Float>;
 
-constexpr Vec2 U         = {.x = 1.0, .y = 1.0};
-constexpr Vec2 W         = {.x = 0.5, .y = 0.5};
+constexpr Float x_min    = -0.5;
+constexpr Float x_max    = 0.5;
+constexpr Float y_min    = -0.5;
+constexpr Float y_max    = 0.5;
 
 constexpr Float CFL      = 0.5;
-constexpr Float tend     = 2.0;
+constexpr Float tend     = 1.0;
 constexpr Float dt_write = tend / 100.0;
+constexpr Float dt_max   = 1e-2;
 
 // =================================================================================================
 // = ALE Advection =================================================================================
@@ -40,6 +42,7 @@ template <typename Float, Layout LAYOUT>
 constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
+                                   const FaceVector<Float, LAYOUT> w,
                                    const VertexScalar<Float, LAYOUT> x,
                                    const VertexScalar<Float, LAYOUT> y,
                                    FaceVector<Float, LAYOUT> F) {
@@ -48,21 +51,33 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
   weno_reconstruction(grid, s, sL, sR);
 
   grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
-    const auto si     = u.x(i, j) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
-    const auto ui     = u.x(i, j);
-    const auto vi     = (u.y(i - 1, j) + u.y(i - 1, j + 1) + u.y(i, j) + u.y(i, j + 1)) / 4.0;
+    const auto ux     = u.x(i, j);
+    const auto uy     = (u.y(i - 1, j) + u.y(i - 1, j + 1) + u.y(i, j) + u.y(i, j + 1)) / 4.0;
+
+    const auto wx     = w.x(i, j);
+    const auto wy     = (w.y(i - 1, j) + w.y(i - 1, j + 1) + w.y(i, j) + w.y(i, j + 1)) / 4.0;
+
     const auto dxdeta = (x(i, j + 1) - x(i, j)) / grid.dy();
     const auto dydeta = (y(i, j + 1) - y(i, j)) / grid.dy();
-    F.x(i, j)         = dydeta * (-si * ui + si * W.x) - dxdeta * (-si * vi + si * W.y);
+
+    const auto si     = dydeta * (ux - wx) - dxdeta * (uy - wy) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
+
+    F.x(i, j)         = dydeta * (-si * ux + si * wx) - dxdeta * (-si * uy + si * wy);
   });
 
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
-    const auto si    = u.y(i, j) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
-    const auto ui    = (u.x(i - 1, j) + u.x(i - 1, j + 1) + u.x(i, j) + u.x(i, j + 1)) / 4.0;
-    const auto vi    = u.y(i, j);
+    const auto ux    = (u.x(i, j) + u.x(i, j - 1) + u.x(i + 1, j) + u.x(i + 1, j - 1)) / 4.0;
+    const auto uy    = u.y(i, j);
+
+    const auto wx    = (w.x(i, j) + w.x(i, j - 1) + w.x(i + 1, j) + w.x(i + 1, j - 1)) / 4.0;
+    const auto wy    = w.y(i, j);
+
     const auto dxdxi = (x(i + 1, j) - x(i, j)) / grid.dx();
     const auto dydxi = (y(i + 1, j) - y(i, j)) / grid.dx();
-    F.y(i, j)        = -dydxi * (-si * ui + si * W.x) + dxdxi * (-si * vi + si * W.y);
+
+    const auto si    = -dydxi * (ux - wx) + dxdxi * (uy - wy) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
+
+    F.y(i, j)        = -dydxi * (-si * ux + si * wx) + dxdxi * (-si * uy + si * wy);
   });
 }
 
@@ -71,10 +86,13 @@ constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
                                   Float dt,
                                   const FaceVector<Float, LAYOUT> F,
                                   const Scalar<Float, LAYOUT> s_old,
+                                  const Scalar<Float, LAYOUT> J_old,
+                                  const Scalar<Float, LAYOUT> J,
                                   Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
-    s(i, j) = s_old(i, j) + dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
-                                  (F.top(i, j) - F.bottom(i, j)) / grid.dy());
+    s(i, j) = (J_old(i, j) * s_old(i, j) + dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
+                                                 (F.top(i, j) - F.bottom(i, j)) / grid.dy())) /
+              J(i, j);
   });
 }
 
@@ -100,19 +118,24 @@ constexpr void ale_calc_J_geom(const Grid<Float, LAYOUT>& grid,
 
 template <typename Float, Layout LAYOUT>
 constexpr void ale_calc_J_flux(const Grid<Float, LAYOUT>& grid,
+                               const FaceVector<Float, LAYOUT> w,
                                const VertexScalar<Float, LAYOUT> x,
                                const VertexScalar<Float, LAYOUT> y,
                                FaceVector<Float, LAYOUT> F) {
   grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
+    const auto wx     = w.x(i, j);
+    const auto wy     = (w.y(i - 1, j) + w.y(i - 1, j + 1) + w.y(i, j) + w.y(i, j + 1)) / 4.0;
     const auto dxdeta = (x(i, j + 1) - x(i, j)) / grid.dy();
     const auto dydeta = (y(i, j + 1) - y(i, j)) / grid.dy();
-    F.x(i, j)         = dydeta * W.x - dxdeta * W.y;
+    F.x(i, j)         = dydeta * wx - dxdeta * wy;
   });
 
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
+    const auto wx    = (w.x(i, j - 1) + w.x(i, j) + w.x(i + 1, j - 1) + w.x(i + 1, j)) / 4.0;
+    const auto wy    = w.y(i, j);
     const auto dxdxi = (x(i + 1, j) - x(i, j)) / grid.dx();
     const auto dydxi = (y(i + 1, j) - y(i, j)) / grid.dx();
-    F.y(i, j)        = -dydxi * W.x + dxdxi * W.y;
+    F.y(i, j)        = -dydxi * wx + dxdxi * wy;
   });
 }
 
@@ -137,6 +160,36 @@ constexpr void interpolate_vertex(const Grid<Float, LAYOUT>& grid,
                                   Scalar<Float, LAYOUT> s) {
   grid.foreach_i(
       FOREACH_FUNC { s(i, j) = (v(i, j) + v(i + 1, j) + v(i, j + 1) + v(i + 1, j + 1)) / 4.0; });
+}
+
+constexpr auto cartesian2polar(Vec2 p) -> Vec2 {
+  const auto r     = std::sqrt(Igor::sqr(p.x) + Igor::sqr(p.y));
+  const auto theta = std::atan2(p.y, p.x);
+  return {.x = theta, .y = r};
+}
+
+template <typename Float, Layout LAYOUT>
+constexpr void calc_mesh_velocity(const Grid<Float, LAYOUT>& grid,
+                                  const VertexScalar<Float, LAYOUT> x,
+                                  const VertexScalar<Float, LAYOUT> y,
+                                  FaceVector<Float, LAYOUT> w) {
+  grid.template foreach_face_a<Dimension::X>(FOREACH_FUNC {
+    const auto xi         = (x(i, j) + x(i, j + 1)) / 2.0;
+    const auto yi         = (y(i, j) + y(i, j + 1)) / 2.0;
+    const auto [theta, r] = cartesian2polar({.x = xi, .y = yi});
+
+    const auto Utheta     = 2.0 * pi * r;
+    w.x(i, j)             = -Utheta * std::sin(theta);
+  });
+
+  grid.template foreach_face_a<Dimension::Y>(FOREACH_FUNC {
+    const auto xi         = (x(i, j) + x(i + 1, j)) / 2.0;
+    const auto yi         = (y(i, j) + y(i + 1, j)) / 2.0;
+    const auto [theta, r] = cartesian2polar({.x = xi, .y = yi});
+
+    const auto Utheta     = 2.0 * pi * r;
+    w.y(i, j)             = Utheta * std::cos(theta);
+  });
 }
 
 // =================================================================================================
@@ -165,15 +218,20 @@ auto main(int argc, char** argv) -> int {
   auto Fs        = grid.alloc_face_vector();
 
   auto u         = grid.alloc_face_vector();
+  auto ui        = grid.alloc_vector();
 
   auto geo_x_old = grid.alloc_vertex_scalar();
   auto geo_x     = grid.alloc_vertex_scalar();
   auto geo_y_old = grid.alloc_vertex_scalar();
   auto geo_y     = grid.alloc_vertex_scalar();
 
+  auto w         = grid.alloc_face_vector();
+  auto wi        = grid.alloc_vector();
+
   auto J_old     = grid.alloc_scalar();
   auto J         = grid.alloc_scalar();
   auto FJ        = grid.alloc_face_vector();
+  auto J_geom    = grid.alloc_scalar();
 
   auto xi        = grid.alloc_scalar();
   auto yi        = grid.alloc_scalar();
@@ -183,22 +241,11 @@ auto main(int argc, char** argv) -> int {
   // -----------------------------------------------------------------------------------------------
 
   const BConds<Float> bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Periodic{},
-      .top    = Periodic{},
+      .left   = Neumann{},
+      .right  = Neumann{},
+      .bottom = Neumann{},
+      .top    = Neumann{},
   };
-
-  fill(u.x, U.x);
-  fill(u.y, U.y);
-  apply_velocity_bconds(grid, bconds, bconds, u, t);
-
-  grid.foreach_i(FOREACH_FUNC {
-    const auto x = grid.xm(i);
-    const auto y = grid.ym(j);
-    s(i, j)      = static_cast<Float>(Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) < Igor::sqr(0.1));
-  });
-  apply_bconds(grid, bconds, s, 0.0);
 
   grid.foreach_vertex_a(FOREACH_FUNC {
     geo_x(i, j) = grid.x(i);
@@ -208,31 +255,57 @@ auto main(int argc, char** argv) -> int {
   interpolate_vertex(grid, geo_y, yi);
 
   ale_calc_J_geom(grid, geo_x, geo_y, J);
+  // Make sure that these values are never used
+  fill_ghost(grid, J, std::numeric_limits<Float>::quiet_NaN());
+  ale_calc_J_geom(grid, geo_x, geo_y, J_geom);
+
+  fill(u, 0.0);
+  apply_velocity_bconds(grid, bconds, bconds, u, t);
+  interpolate(grid, u, ui);
+
+  grid.foreach_i(FOREACH_FUNC {
+    const auto x = grid.xm(i);
+    const auto y = grid.ym(j);
+    s(i, j)      = static_cast<Float>(Igor::sqr(x + 0.25) + Igor::sqr(y) < Igor::sqr(0.1));
+  });
+  apply_bconds(grid, bconds, s, 0.0);
+
+  calc_mesh_velocity(grid, geo_x, geo_y, w);
+  interpolate(grid, w, wi);
 
   VTKWriter writer(output_dir, grid);
   writer.add_field("s", s);
+  writer.add_field("u", ui);
+  writer.add_field("w", wi);
   writer.add_field("x", xi);
   writer.add_field("y", yi);
   writer.add_field("J", J);
-  if (!writer.write(t)) { return 1; }
+  writer.add_field("J_geom", J_geom);
+  if (!writer.write(geo_x, geo_y, t)) { return 1; }
 
-  Stats s_stats = stats(grid, s);
-  Stats J_stats = stats(grid, J);
+  Stats s_stats      = stats(grid, s, J);
+  const auto s0_sum  = s_stats.sum;
+  Stats J_stats      = stats(grid, J, J);
+  Stats J_geom_stats = stats(grid, J_geom, J);
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
   monitor.add_variable(&dt, "dt");
   monitor.add_variable(&s_stats.min, "min(s)");
   monitor.add_variable(&s_stats.max, "max(s)");
+  monitor.add_variable(&s_stats.sum, "sum(s)");
   monitor.add_variable(&J_stats.min, "min(J)");
   monitor.add_variable(&J_stats.max, "max(J)");
+  monitor.add_variable(&J_geom_stats.min, "min(J_geom)");
+  monitor.add_variable(&J_geom_stats.max, "max(J_geom)");
   monitor.write();
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
 
     dt = std::min({
-        adjust_dt(grid, u, 1.0, 0.0, CFL),
+        adjust_dt(grid, w, 1.0, 0.0, CFL),
+        dt_max,
         dt_write,
         tend - t,
     });
@@ -245,29 +318,57 @@ auto main(int argc, char** argv) -> int {
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
-      advection_calc_flux(grid, u, s, geo_x, geo_y, Fs);
-      advection_update_s(grid, local_dt, Fs, s_old, s);
+      ale_calc_J_flux(grid, w, geo_x, geo_y, FJ);
+      ale_update_J(grid, local_dt, FJ, J_old, J);
+      // Make sure that these values are never used
+      fill_ghost(grid, J, std::numeric_limits<Float>::quiet_NaN());
+
+      advection_calc_flux(grid, u, s, w, geo_x, geo_y, Fs);
+      advection_update_s(grid, local_dt, Fs, s_old, J_old, J, s);
       apply_bconds(grid, bconds, s, 0.0);
 
-      ale_calc_J_flux(grid, geo_x, geo_y, FJ);
-      ale_update_J(grid, local_dt, FJ, J_old, J);
+      // #define SPIRAL
 
+      // This is a hack because I don't know how to properly handle the ghost cells otherwise
       grid.foreach_vertex_a(FOREACH_FUNC {
-        geo_x(i, j) = geo_x_old(i, j) + local_dt * W.x;
-        geo_y(i, j) = geo_y_old(i, j) + local_dt * W.y;
+#ifndef SPIRAL
+        const auto [theta, r] = cartesian2polar({.x = geo_x(i, j), .y = geo_y(i, j)});
+#else
+        const auto [theta, r] = cartesian2polar({.x = grid.x(i), .y = grid.y(j)});
+#endif  // SPIRAL
+        const auto Utheta = 2.0 * pi * r;
+        const auto wx     = -Utheta * std::sin(theta);
+        const auto wy     = Utheta * std::cos(theta);
+        geo_x(i, j)       = geo_x_old(i, j) + local_dt * wx;
+        geo_y(i, j)       = geo_y_old(i, j) + local_dt * wy;
       });
+#ifndef SPIRAL
+      calc_mesh_velocity(grid, geo_x, geo_y, w);
+#endif
     }
 
-    s_stats = stats(grid, s);
-    J_stats = stats(grid, J);
+    ale_calc_J_geom(grid, geo_x, geo_y, J_geom);
+
+    s_stats      = stats(grid, s, J);
+    J_stats      = stats(grid, J, J);
+    J_geom_stats = stats(grid, J_geom, J);
+    interpolate(grid, w, wi);
     interpolate_vertex(grid, geo_x, xi);
     interpolate_vertex(grid, geo_y, yi);
     t += dt;
     if (should_save(t, dt, dt_write, tend)) {
-      if (!writer.write(t)) { return 1; }
+      if (!writer.write(geo_x, geo_y, t)) { return 1; }
     }
     monitor.write();
   }
+
+  Igor::Info("abserr(s) = {}", std::abs(s_stats.sum - s0_sum));
+  Igor::Info("relerr(s) = {}", std::abs((s_stats.sum - s0_sum) / s0_sum));
+
+#ifndef SPIRAL
+  Igor::Info("abserr(J) = {}", std::abs(J_stats.max - 1.0));
+#endif
+  Igor::Info("abserr(J, J_geom) = {}", std::abs(J_stats.max - J_geom_stats.max));
 
   Igor::Info("Ok.");
 }
