@@ -232,7 +232,7 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (multigrid) {
-        mg_solver.solve(dp, div);
+        mg_solver.solve(dp, div, 1e-6);
         mg_cycles   = mg_solver.num_cycles();
         mg_residual = mg_solver.res();
       } else {
