@@ -10,7 +10,7 @@ ifeq (${BASENAME_CXX}, clang++)
 
 else ifeq (${BASENAME_CXX}, ${filter ${BASENAME_CXX}, g++ g++-16})
 
-	CXX_FLAGS           = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
+	CXX_FLAGS           = -Wall -Wextra -pedantic -Wconversion -Wno-changes-meaning -std=c++23
 	CXX_RELEASE_FLAGS   = -march=native -O3
 	CXX_FAST_FLAGS      = ${CXX_RELEASE_FLAGS} -ffast-math -DNDEBUG -DIGOR_NDEBUG
 	CXX_DEBUG_FLAGS     = -O0 -g
