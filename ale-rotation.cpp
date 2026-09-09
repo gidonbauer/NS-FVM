@@ -259,7 +259,13 @@ auto main(int argc, char** argv) -> int {
   fill_ghost(grid, J, std::numeric_limits<Float>::quiet_NaN());
   ale_calc_J_geom(grid, geo_x, geo_y, J_geom);
 
+#if STATIONARY
   fill(u, 0.0);
+#else
+  calc_mesh_velocity(grid, geo_x, geo_y, u);
+  grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) *= -1.0; });
+  grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) *= -1.0; });
+#endif
   apply_velocity_bconds(grid, bconds, bconds, u, t);
   interpolate(grid, u, ui);
 
@@ -273,15 +279,42 @@ auto main(int argc, char** argv) -> int {
   calc_mesh_velocity(grid, geo_x, geo_y, w);
   interpolate(grid, w, wi);
 
-  VTKWriter writer(output_dir, grid);
-  writer.add_field("s", s);
-  writer.add_field("u", ui);
-  writer.add_field("w", wi);
-  writer.add_field("x", xi);
-  writer.add_field("y", yi);
-  writer.add_field("J", J);
-  writer.add_field("J_geom", J_geom);
-  if (!writer.write(geo_x, geo_y, t)) { return 1; }
+  const auto moving_dir     = output_dir + "moving";
+  const auto stationary_dir = output_dir + "stationary";
+  {
+    std::error_code ec;
+    std::filesystem::create_directories(moving_dir, ec);
+    if (ec) {
+      Igor::Warn("Could not create directory `{}`: {}", moving_dir, ec.message());
+      return 1;
+    }
+
+    std::filesystem::create_directories(stationary_dir, ec);
+    if (ec) {
+      Igor::Warn("Could not create directory `{}`: {}", stationary_dir, ec.message());
+      return 1;
+    }
+  }
+
+  VTKWriter writer_moving_grid(moving_dir, grid);
+  writer_moving_grid.add_field("s", s);
+  writer_moving_grid.add_field("u", ui);
+  writer_moving_grid.add_field("w", wi);
+  writer_moving_grid.add_field("x", xi);
+  writer_moving_grid.add_field("y", yi);
+  writer_moving_grid.add_field("J", J);
+  writer_moving_grid.add_field("J_geom", J_geom);
+  if (!writer_moving_grid.write(geo_x, geo_y, t)) { return 1; }
+
+  VTKWriter writer_stationary_grid(stationary_dir, grid);
+  writer_stationary_grid.add_field("s", s);
+  writer_stationary_grid.add_field("u", ui);
+  writer_stationary_grid.add_field("w", wi);
+  writer_stationary_grid.add_field("x", xi);
+  writer_stationary_grid.add_field("y", yi);
+  writer_stationary_grid.add_field("J", J);
+  writer_stationary_grid.add_field("J_geom", J_geom);
+  if (!writer_stationary_grid.write(t)) { return 1; }
 
   Stats s_stats      = stats(grid, s, J);
   const auto s0_sum  = s_stats.sum;
@@ -304,6 +337,7 @@ auto main(int argc, char** argv) -> int {
   while (t < tend) {
 
     dt = std::min({
+        adjust_dt(grid, u, 1.0, 0.0, CFL),
         adjust_dt(grid, w, 1.0, 0.0, CFL),
         dt_max,
         dt_write,
@@ -345,6 +379,13 @@ auto main(int argc, char** argv) -> int {
 #ifndef SPIRAL
       calc_mesh_velocity(grid, geo_x, geo_y, w);
 #endif
+
+#ifndef STATIONARY
+      calc_mesh_velocity(grid, geo_x, geo_y, u);
+      grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) *= -1.0; });
+      grid.foreach_face_i<Dimension::Y>(FOREACH_FUNC { u.y(i, j) *= -1.0; });
+      apply_velocity_bconds(grid, bconds, bconds, u);
+#endif
     }
 
     ale_calc_J_geom(grid, geo_x, geo_y, J_geom);
@@ -357,7 +398,8 @@ auto main(int argc, char** argv) -> int {
     interpolate_vertex(grid, geo_y, yi);
     t += dt;
     if (should_save(t, dt, dt_write, tend)) {
-      if (!writer.write(geo_x, geo_y, t)) { return 1; }
+      if (!writer_moving_grid.write(geo_x, geo_y, t)) { return 1; }
+      if (!writer_stationary_grid.write(t)) { return 1; }
     }
     monitor.write();
   }
