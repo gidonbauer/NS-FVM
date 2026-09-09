@@ -211,7 +211,9 @@ class Grid {
   foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
 #ifdef NS_FVM_PARALLEL
     if constexpr (EXEC == Exec::PARALLEL) {
-      Kokkos::parallel_for("foreach_range", Kokkos::MDRangePolicy({ilo, jlo}, {ihi, jhi}), func);
+      constexpr auto DIR = (LAYOUT == Layout::C) ? Kokkos::Iterate::Right : Kokkos::Iterate::Left;
+      using Policy = Kokkos::MDRangePolicy<Kokkos::Rank<2, DIR, DIR>, Kokkos::IndexType<Index>>;
+      Kokkos::parallel_for("foreach_range", Policy({ilo, jlo}, {ihi, jhi}), func);
     } else
 #endif  // NS_FVM_PARALLEL
       if constexpr (LAYOUT == Layout::F) {
