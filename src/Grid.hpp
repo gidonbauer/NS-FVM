@@ -344,6 +344,8 @@ class VertexScalar {
   [[nodiscard]] constexpr auto ny() const noexcept -> Index { return m_s.ny(); }
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_s.nghost(); }
 
+  [[nodiscard]] constexpr auto scalar() const noexcept -> Scalar { return m_s; }
+
   friend class Grid<Float, LAYOUT>;
 };
 

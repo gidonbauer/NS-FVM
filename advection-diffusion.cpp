@@ -11,10 +11,10 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
-#include "VTKWriter.hpp"
 
 using Float              = double;
 
@@ -85,8 +85,8 @@ auto main(int argc, char** argv) -> int {
   auto Fs    = grid.alloc_face_vector();
 
   auto ui    = grid.alloc_vector();
-  auto p     = grid.alloc_scalar();  // Pressure (accumulated across steps).
-  auto dp    = grid.alloc_scalar();  // Pressure correction of the current step.
+  auto p     = grid.alloc_scalar();
+  auto dp    = grid.alloc_scalar();
   auto div   = grid.alloc_scalar();
   auto s_old = grid.alloc_scalar();
   auto s     = grid.alloc_scalar();
@@ -129,7 +129,7 @@ auto main(int argc, char** argv) -> int {
   });
   apply_dirichlet_bconds(grid, s, 0.0);
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
   writer.add_field("div", div);

@@ -46,3 +46,11 @@ ifeq (${PARALLEL}, 1)
 	CXX_LIB += ${KOKKOS_LIB}
 endif
 # = Kokkos =======================================
+
+# = HDF5 =========================================
+HDF_DIR ?= /opt/homebrew/opt/hdf5
+HDF_INC = -I${HDF_DIR}/include
+HDF_LIB = -L${HDF_DIR}/lib -lhdf5_hl_cpp -lhdf5_cpp -lhdf5_hl -lhdf5
+CXX_INC += ${HDF_INC}
+CXX_LIB += ${HDF_LIB}
+# = HDF5 =========================================

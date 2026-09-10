@@ -11,10 +11,10 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
-#include "VTKWriter.hpp"
 #include "WENO5.hpp"
 
 using Float = double;
@@ -296,7 +296,7 @@ auto main(int argc, char** argv) -> int {
     }
   }
 
-  VTKWriter writer_moving_grid(moving_dir, grid);
+  HDFWriter writer_moving_grid(moving_dir, grid);
   writer_moving_grid.add_field("s", s);
   writer_moving_grid.add_field("u", ui);
   writer_moving_grid.add_field("w", wi);
@@ -306,7 +306,7 @@ auto main(int argc, char** argv) -> int {
   writer_moving_grid.add_field("J_geom", J_geom);
   if (!writer_moving_grid.write(geo_x, geo_y, t)) { return 1; }
 
-  VTKWriter writer_stationary_grid(stationary_dir, grid);
+  HDFWriter writer_stationary_grid(stationary_dir, grid);
   writer_stationary_grid.add_field("s", s);
   writer_stationary_grid.add_field("u", ui);
   writer_stationary_grid.add_field("w", wi);
