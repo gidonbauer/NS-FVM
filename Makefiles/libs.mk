@@ -43,7 +43,7 @@ ifeq (${PARALLEL}, 1)
 		CXX_INC += ${TBB_INC}
 		CXX_LIB += ${TBB_LIB}
   else ifeq (${COMP}, NVIDIA)
-		CXX_FLAGS += -stdpar=gpu -Minfo=accel,par,stdpar
+		CXX_FLAGS += -stdpar=gpu -Minfo=accel,par,stdpar -DIGOR_USE_CASSERT
   endif 
 endif
 # = Stdpar =======================================
