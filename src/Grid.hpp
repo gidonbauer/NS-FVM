@@ -201,6 +201,7 @@ class Grid {
     if constexpr (EXEC == Exec::PARALLEL) {
       const Index n_outer = LAYOUT == Layout::C ? ihi - ilo : jhi - jlo;
       const Index n_inner = LAYOUT == Layout::C ? jhi - jlo : ihi - ilo;
+      if (n_inner <= 0 || n_outer <= 0) { return; }
 
       // tile_size = clamp(grid_size/TARGET_TILE_COUNT, MIN_TILE_SIZE, n_inner)
       // making sure it never exceeds n_inner
@@ -298,6 +299,7 @@ class Grid {
     if constexpr (EXEC == Exec::PARALLEL) {
       const Index n_outer = LAYOUT == Layout::C ? ihi - ilo : jhi - jlo;
       const Index n_inner = LAYOUT == Layout::C ? jhi - jlo : ihi - ilo;
+      if (n_inner <= 0 || n_outer <= 0) { return init; }
 
       // tile_size = clamp(grid_size/TARGET_TILE_COUNT, MIN_TILE_SIZE, n_inner)
       // making sure it never exceeds n_inner
@@ -313,24 +315,24 @@ class Grid {
                                    init,
                                    reduce,
                                    [=](Index tile_idx) -> ReduceType {
-                                     ReduceType res    = init;
-
                                      const Index outer = tile_idx / n_tiles_per_outer;
                                      const Index start = (tile_idx % n_tiles_per_outer) * tile_size;
                                      const Index stop  = std::min(start + tile_size, n_inner);
                                      if constexpr (LAYOUT == Layout::C) {
-                                       const Index i = outer + ilo;
-                                       for (Index j = start + jlo; j < stop + jlo; ++j) {
+                                       const Index i  = outer + ilo;
+                                       ReduceType res = transform(i, start + jlo);
+                                       for (Index j = start + jlo + 1; j < stop + jlo; ++j) {
                                          res = reduce(transform(i, j), res);
                                        }
+                                       return res;
                                      } else {
-                                       const Index j = outer + jlo;
-                                       for (Index i = start + ilo; i < stop + ilo; ++i) {
+                                       const Index j  = outer + jlo;
+                                       ReduceType res = transform(start + ilo, j);
+                                       for (Index i = start + ilo + 1; i < stop + ilo; ++i) {
                                          res = reduce(transform(i, j), res);
                                        }
+                                       return res;
                                      }
-
-                                     return res;
                                    });
     } else
 #endif  // NS_FVM_PARALLEL

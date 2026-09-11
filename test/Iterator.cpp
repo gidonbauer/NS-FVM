@@ -46,7 +46,7 @@ auto minmax_reduce() -> bool {
       any_failed = true;
     }
     if (res.max != max_expected) {
-      Igor::Error("Incorrect max value in interior, expected {} but got {}", max_expected, res.min);
+      Igor::Error("Incorrect max value in interior, expected {} but got {}", max_expected, res.max);
       any_failed = true;
     }
   }
@@ -74,7 +74,7 @@ auto minmax_reduce() -> bool {
     }
     if (res.max != max_expected) {
       Igor::Error(
-          "Incorrect max value in entire field, expected {} but got {}", max_expected, res.min);
+          "Incorrect max value in entire field, expected {} but got {}", max_expected, res.max);
       any_failed = true;
     }
   }
@@ -111,7 +111,8 @@ auto residual() -> bool {
       FOREACH_FUNC {
         const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
                         (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-        return std::abs(rhs(i, j) - L);
+        res(i, j)     = rhs(i, j) - L;
+        return std::abs(res(i, j));
       },
       [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
 
@@ -123,6 +124,27 @@ auto residual() -> bool {
   return true;
 }
 
+// =================================================================================================
+template <Exec EXEC>
+auto sum() -> bool {
+  const Index N = 1 << 14;
+  Grid<Float> grid(0.0, 1.0, N, 0.0, 1.0, N, 1);
+  auto s = grid.alloc_scalar();
+
+  grid.foreach_i<EXEC>(FOREACH_FUNC { s(i, j) = 1.0; });
+  Float sum_plus_one =
+      grid.transform_reduce_i<EXEC>(1.0, FOREACH_FUNC { return s(i, j); }, std::plus<>{});
+
+  constexpr Float sum_plus_one_expected = N * N + 1.0;
+  if (sum_plus_one != sum_plus_one_expected) {
+    Igor::Error("Expected sum_plus_one to be {} but is {}.", sum_plus_one_expected, sum_plus_one);
+    return false;
+  }
+
+  return true;
+}
+
+// =================================================================================================
 auto main() -> int {
   bool any_failed = false;
 
@@ -138,6 +160,16 @@ auto main() -> int {
 
   if (!residual()) {
     Igor::Error("residual failed.");
+    any_failed = true;
+  }
+
+  if (!sum<Exec::SERIAL>()) {
+    Igor::Error("sum(serial) failed.");
+    any_failed = true;
+  }
+
+  if (!sum<Exec::PARALLEL>()) {
+    Igor::Error("sum(parallel) failed.");
     any_failed = true;
   }
 
