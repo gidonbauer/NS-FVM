@@ -6,11 +6,11 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
 #include "MultigridPoisson.hpp"
-#include "VTKWriter.hpp"
 
 // = Setup =========================================================================================
 using Float               = double;
@@ -18,7 +18,7 @@ using Float               = double;
 constexpr Float theta_min = 0.0;
 constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float r_min     = 1.0;
-constexpr Float r_max     = 100.0;
+constexpr Float r_max     = 10.0;
 
 constexpr Float Uinf      = 1.0;
 constexpr Float rho       = 1.0;
@@ -28,9 +28,51 @@ constexpr Float Re        = Uinf * rho * r_min / mu;
 
 constexpr Float CFL       = 0.7;
 constexpr Float tend      = 100.0;
-constexpr Float dt_write  = tend / 100.0;
 // = Setup =========================================================================================
 
+// =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr void custom_velocity_top_boundary(const Grid<Float, LAYOUT>& grid,
+                                            FaceVector<Float, LAYOUT> u) {
+
+  // - U -----------
+  grid.foreach_range(
+      -u.x.nghost(), u.x.nx() + u.x.nghost(), 0, 1, FOREACH_FUNC {
+        if (i >= u.x.nx() * 3 / 8 && i <= u.x.nx() * 5 / 8) {
+          // Linear extrapolation
+          const auto sN    = u.x(i, u.x.ny() - 1);
+          const auto theta = grid.x(i);
+          const auto v     = Uinf * -std::sin(theta);
+          for (j = u.x.ny(); j < u.x.ny() + u.x.nghost(); ++j) {
+            u.x(i, j) = sN + 2.0 * (v - sN) * (j - u.x.ny() + 1);
+          }
+        } else {
+          for (j = u.x.ny(); j < u.x.ny() + u.x.nghost(); ++j) {
+            u.x(i, j) = u.x(i, 2 * u.x.ny() - j - 1);
+          }
+        }
+      });
+
+  // - V -----------
+  grid.foreach_range(
+      -u.y.nghost(), u.y.nx() + u.y.nghost(), 0, 1, FOREACH_FUNC {
+        if (i >= u.y.nx() * 3 / 8 && i <= u.y.nx() * 5 / 8) {
+          // Linear extrapolation
+          const auto sN    = u.y(i, u.y.ny() - 2);
+          const auto theta = grid.xm(i);
+          const auto v     = Uinf * std::cos(theta);
+          for (j = u.y.ny() - 1; j < u.y.ny() + u.y.nghost(); ++j) {
+            u.y(i, j) = sN + (v - sN) * (j - u.y.ny() + 2);
+          }
+        } else {
+          for (j = u.y.ny(); j < u.y.ny() + u.y.nghost(); ++j) {
+            u.y(i, j) = u.y(i, 2 * u.y.ny() - j - 1);
+          }
+        }
+      });
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -71,7 +113,8 @@ auto main(int argc, char** argv) -> int {
   Index mg_cycles = 0;
   Float mg_res    = 0.0;
 
-#if 0
+  Float iter_time = 0.0;
+
   const BConds<Float> u_bconds{
       .left   = Periodic{},
       .right  = Periodic{},
@@ -92,26 +135,6 @@ auto main(int argc, char** argv) -> int {
       .bottom = Neumann{},
       .top    = Neumann{},
   };
-#else
-  const BConds<Float> u_bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Dirichlet<Float>{.val = 0.0},
-      .top    = Neumann{},
-  };
-  const BConds<Float> v_bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Dirichlet<Float>{.val = 0.0},
-      .top    = Neumann{},
-  };
-  const BConds<Float> dp_bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Neumann{},
-      .top    = Neumann{},
-  };
-#endif
 
   MultigridSolver solver(grid, dp_bconds);
 
@@ -124,9 +147,10 @@ auto main(int argc, char** argv) -> int {
     u.y(i, j)        = Uinf * std::cos(theta);
   });
   apply_velocity_bconds(grid, u_bconds, v_bconds, u);
+  custom_velocity_top_boundary(grid, u);
   interpolate(grid, u, ui);
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
   writer.add_field("div", div);
@@ -142,16 +166,21 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&t, "t");
   monitor.add_variable(&dt, "dt");
   monitor.add_variable(&p_stats.max, "max(p)");
-  monitor.add_variable(&u_stats.max, "max(u)");
-  monitor.add_variable(&v_stats.max, "max(v)");
+  monitor.add_variable(&u_stats.max, "max(u_theta)");
+  monitor.add_variable(&v_stats.max, "max(u_r)");
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_res, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
+  monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
+
+  Float dt_write = tend / 50.0;
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
-    dt = std::min({
+    const auto t_begin = std::chrono::high_resolution_clock::now();
+
+    dt                 = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
         dt_write,
         tend - t,
@@ -166,11 +195,12 @@ auto main(int argc, char** argv) -> int {
       calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u);
+      custom_velocity_top_boundary(grid, u);
 
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (!solver.solve(dp, div, 1e-3)) {
+      if (!solver.solve(dp, div, 1e-4 / Igor::sqr(dt))) {
         Igor::Warn("t={:.8f}: Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    t,
                    solver.num_cycles(),
@@ -194,9 +224,13 @@ auto main(int argc, char** argv) -> int {
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
+    if (t > 50.0) { dt_write = tend / 200.0; }
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }
+
+    iter_time =
+        std::chrono::duration<Float>(std::chrono::high_resolution_clock::now() - t_begin).count();
     monitor.write();
   }
 
