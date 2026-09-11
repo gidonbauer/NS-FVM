@@ -1,6 +1,18 @@
 BASENAME_CXX = ${notdir ${CXX}}
 
 ifeq (${BASENAME_CXX}, clang++)
+	COMP = CLANG
+else ifneq ($(filter g++ g++-%, ${BASENAME_CXX}),)  # Filter matches all `g++` and `g++-*`; true if not nothing is returned
+	COMP = GNU
+else ifeq (${BASENAME_CXX}, icpx)
+	COMP = INTEL
+else ifeq (${BASENAME_CXX}, nvc++)
+	COMP = NVIDIA
+else
+  ${error "Unknown C++ compiler `${CXX}`"}
+endif
+
+ifeq (${COMP}, CLANG)
 
 	CXX_FLAGS           = -Wall -Wextra -pedantic -Wshadow -Wconversion -Winline -std=c++23
 	CXX_RELEASE_FLAGS   = -march=native -mtune=native -O3
@@ -8,7 +20,7 @@ ifeq (${BASENAME_CXX}, clang++)
 	CXX_DEBUG_FLAGS     = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
 
-else ifeq (${BASENAME_CXX}, ${filter ${BASENAME_CXX}, g++ g++-16})
+else ifeq (${COMP}, GNU)
 
 	CXX_FLAGS           = -Wall -Wextra -pedantic -Wconversion -Wno-changes-meaning -std=c++23
 	CXX_RELEASE_FLAGS   = -march=native -O3
@@ -16,7 +28,7 @@ else ifeq (${BASENAME_CXX}, ${filter ${BASENAME_CXX}, g++ g++-16})
 	CXX_DEBUG_FLAGS     = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,undefined
 
-else ifeq (${BASENAME_CXX}, icpx)
+else ifeq (${COMP}, INTEL)
 
 	CXX_FLAGS           = -Wall -Wextra -pedantic -Wshadow -Wconversion -std=c++23
 	CXX_RELEASE_FLAGS   = -O3 -march=native -mtune=native -fp-model precise
@@ -24,7 +36,7 @@ else ifeq (${BASENAME_CXX}, icpx)
 	CXX_DEBUG_FLAGS     = -O0 -g
 	CXX_SANITIZER_FLAGS = -fsanitize=address,leak,undefined
 
-else ifeq (${BASENAME_CXX}, nvc++)
+else ifeq (${COMP}, NVIDIA)
 
 	CXX_FLAGS           = -Wall -Wextra -pedantic -Wshadow -std=c++23
 	CXX_RELEASE_FLAGS   = -O3 -fastsse -Mvect=simd:256,noassoc
@@ -34,7 +46,7 @@ else ifeq (${BASENAME_CXX}, nvc++)
 
 else
 
-  ${error "Unknown C++ compiler `${CXX}`"}
+  ${error "Unknown compiler `${COMP}`"}
 
 endif
 

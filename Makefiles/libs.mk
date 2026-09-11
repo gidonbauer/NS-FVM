@@ -32,20 +32,21 @@ CXX_INC += ${POISFFT_INC}
 CXX_LIB += ${POISFFT_LIB}
 # = PoisFFT ======================================
 
-# = Kokkos =======================================
+# = Stdpar =======================================
 ifeq (${PARALLEL}, 1)
-	OMP_DIR ?= /opt/homebrew/opt/libomp
-	OMP_LIB = -L${OMP_DIR}/lib -lomp
-	CXX_LIB += ${OMP_LIB}
-
-	KOKKOS_DIR ?= /opt/homebrew/opt/kokkos
-	KOKKOS_INC = -isystem${KOKKOS_DIR}/include
-	KOKKOS_LIB = -L${KOKKOS_DIR}/lib -lkokkoscore -lkokkosalgorithms -lkokkoscontainers -lkokkossimd
-	CXX_FLAGS += -Xpreprocessor -fopenmp
-	CXX_INC += ${KOKKOS_INC}
-	CXX_LIB += ${KOKKOS_LIB}
+  ifeq (${COMP}, CLANG)
+		CXX_FLAGS += -fexperimental-library -Wno-pass-failed
+  else ifneq ($(filter GNU INTEL, ${COMP}),)  # Filter matches `GNU` and `INTEL`; true if not nothing is returned
+		TBB_DIR ?= /opt/homebrew/opt/tbb
+		TBB_INC = -I${TBB_DIR}/include
+		TBB_LIB = -L${TBB_DIR}/lib -ltbb
+		CXX_INC += ${TBB_INC}
+		CXX_LIB += ${TBB_LIB}
+  else ifeq (${COMP}, NVIDIA)
+		CXX_FLAGS += -stdpar=gpu -Minfo=accel,par,stdpar
+  endif 
 endif
-# = Kokkos =======================================
+# = Stdpar =======================================
 
 # = HDF5 =========================================
 HDF_DIR ?= /opt/homebrew/opt/hdf5

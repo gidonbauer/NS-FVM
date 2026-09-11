@@ -7,7 +7,11 @@
 #include <type_traits>
 
 #ifdef NS_FVM_PARALLEL
-#include <Kokkos_Core.hpp>
+#include <algorithm>
+#include <execution>
+#include <numeric>
+
+#include "IotaIter.hpp"
 #endif  // NS_FVM_PARALLEL
 
 #include <Igor/Logging.hpp>
@@ -28,6 +32,20 @@ static_assert(std::is_integral_v<NS_FVM_INDEX_TYPE> && std::is_signed_v<NS_FVM_I
               "NS_FVM_INDEX_TYPE must be a signed integer type.");
 using Index = NS_FVM_INDEX_TYPE;
 #endif  // FS_INDEX_TYPE
+
+#ifdef NS_FVM_PARALLEL
+namespace Parallel {
+#ifdef __NVCOMPILER
+// GPU parallelization
+constexpr Index TARGET_TILE_COUNT = std::numeric_limits<Index>::max();
+constexpr Index MIN_TILE_SIZE     = 1;
+#else
+// CPU parallelization
+constexpr Index TARGET_TILE_COUNT = 4096;  // Number of tile for entire grid
+constexpr Index MIN_TILE_SIZE     = 64;    // Min. tile size
+#endif
+}  // namespace Parallel
+#endif
 
 template <typename T>
 void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexcept {
@@ -59,36 +77,6 @@ template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
 class FaceVector;
 
-#ifdef NS_FVM_PARALLEL
-class KokkosRefCount {
-  static size_t m_count;
-
- public:
-  constexpr KokkosRefCount() noexcept {
-    if (m_count == 0) { Kokkos::initialize(); }
-    m_count += 1;
-  }
-  constexpr KokkosRefCount(const KokkosRefCount& /*other*/) noexcept {
-    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
-    m_count += 1;
-  }
-  constexpr KokkosRefCount(KokkosRefCount&& /*other*/) noexcept {
-    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
-    m_count += 1;
-  }
-  constexpr auto operator=(const KokkosRefCount& other) noexcept -> KokkosRefCount& = default;
-  constexpr auto operator=(KokkosRefCount&& /*other*/) noexcept -> KokkosRefCount&  = default;
-  constexpr ~KokkosRefCount() noexcept {
-    IGOR_ASSERT(m_count >= 1, "There must be at least one Kokkos user.");
-    if (m_count == 1) { Kokkos::finalize(); }
-    m_count -= 1;
-  }
-
-  static constexpr auto count() noexcept -> size_t { return m_count; }
-};
-size_t KokkosRefCount::m_count = 0;
-#endif  // NS_FVM_PARALLEL
-
 template <typename Float, Layout LAYOUT = Layout::C>
 class Grid {
   using Scalar       = Scalar<Float, LAYOUT>;
@@ -111,9 +99,6 @@ class Grid {
   Coordinates m_coords;
 
   std::shared_ptr<std::vector<Float*>> m_to_free = std::make_shared<std::vector<Float*>>();
-#ifdef NS_FVM_PARALLEL
-  KokkosRefCount m_kokkos_count;
-#endif  // NS_FVM_PARALLEL
 
   constexpr auto alloc(Index nx, Index ny, Index nghost) const noexcept -> Scalar {
     IGOR_ASSERT(nx > 0 && ny > 0 && nghost >= 0,
@@ -205,15 +190,45 @@ class Grid {
     return {x, y};
   }
 
+  // ===============================================================================================
+  // = foreach =====================================================================================
+  // ===============================================================================================
   // Iterate the logical rectangle [ilo, ihi) x [jlo, jhi), innermost over the contiguous dimension.
   template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void
   foreach_range(Index ilo, Index ihi, Index jlo, Index jhi, const FUNC& func) const noexcept {
 #ifdef NS_FVM_PARALLEL
     if constexpr (EXEC == Exec::PARALLEL) {
-      constexpr auto DIR = (LAYOUT == Layout::C) ? Kokkos::Iterate::Right : Kokkos::Iterate::Left;
-      using Policy = Kokkos::MDRangePolicy<Kokkos::Rank<2, DIR, DIR>, Kokkos::IndexType<Index>>;
-      Kokkos::parallel_for("foreach_range", Policy({ilo, jlo}, {ihi, jhi}), func);
+      const Index n_outer = LAYOUT == Layout::C ? ihi - ilo : jhi - jlo;
+      const Index n_inner = LAYOUT == Layout::C ? jhi - jlo : ihi - ilo;
+
+      // tile_size = clamp(grid_size/TARGET_TILE_COUNT, MIN_TILE_SIZE, n_inner)
+      // making sure it never exceeds n_inner
+      const Index tile_size = std::min(
+          std::max((n_inner * n_outer) / Parallel::TARGET_TILE_COUNT, Parallel::MIN_TILE_SIZE),
+          n_inner);
+      // n_tiles_per_outer = ceil(n_inner/tile_size)
+      const auto n_tiles_per_outer = (n_inner + tile_size - 1) / tile_size;
+
+      std::for_each(std::execution::par_unseq,
+                    IotaIter<Index>(0),
+                    IotaIter<Index>(n_outer * n_tiles_per_outer),
+                    [=](Index tile_idx) {
+                      const Index outer = tile_idx / n_tiles_per_outer;
+                      const Index start = (tile_idx % n_tiles_per_outer) * tile_size;
+                      const Index stop  = std::min(start + tile_size, n_inner);
+                      if constexpr (LAYOUT == Layout::C) {
+                        const Index i = outer + ilo;
+                        for (Index j = start + jlo; j < stop + jlo; ++j) {
+                          func(i, j);
+                        }
+                      } else {
+                        const Index j = outer + jlo;
+                        for (Index i = start + ilo; i < stop + ilo; ++i) {
+                          func(i, j);
+                        }
+                      }
+                    });
     } else
 #endif  // NS_FVM_PARALLEL
       if constexpr (LAYOUT == Layout::F) {
@@ -265,6 +280,141 @@ class Grid {
   template <Exec EXEC = Exec::PARALLEL, typename FUNC>
   NS_FVM_FOREACH_DEF constexpr void foreach_vertex_a(const FUNC& func) const noexcept {
     foreach_range<EXEC>(-nghost(), nx() + 1 + nghost(), -nghost(), ny() + 1 + nghost(), func);
+  }
+
+  // ===============================================================================================
+  // = transform_reduce ============================================================================
+  // ===============================================================================================
+  template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_range(Index ilo,
+                                                           Index ihi,
+                                                           Index jlo,
+                                                           Index jhi,
+                                                           ReduceType init,
+                                                           const TRANSFORM& transform,
+                                                           const REDUCE& reduce) const noexcept
+      -> ReduceType {
+#ifdef NS_FVM_PARALLEL
+    if constexpr (EXEC == Exec::PARALLEL) {
+      const Index n_outer = LAYOUT == Layout::C ? ihi - ilo : jhi - jlo;
+      const Index n_inner = LAYOUT == Layout::C ? jhi - jlo : ihi - ilo;
+
+      // tile_size = clamp(grid_size/TARGET_TILE_COUNT, MIN_TILE_SIZE, n_inner)
+      // making sure it never exceeds n_inner
+      const Index tile_size = std::min(
+          std::max((n_inner * n_outer) / Parallel::TARGET_TILE_COUNT, Parallel::MIN_TILE_SIZE),
+          n_inner);
+      // n_tiles_per_outer = ceil(n_inner/tile_size)
+      const auto n_tiles_per_outer = (n_inner + tile_size - 1) / tile_size;
+
+      return std::transform_reduce(std::execution::par_unseq,
+                                   IotaIter<Index>(0),
+                                   IotaIter<Index>(n_outer * n_tiles_per_outer),
+                                   init,
+                                   reduce,
+                                   [=](Index tile_idx) -> ReduceType {
+                                     ReduceType res    = init;
+
+                                     const Index outer = tile_idx / n_tiles_per_outer;
+                                     const Index start = (tile_idx % n_tiles_per_outer) * tile_size;
+                                     const Index stop  = std::min(start + tile_size, n_inner);
+                                     if constexpr (LAYOUT == Layout::C) {
+                                       const Index i = outer + ilo;
+                                       for (Index j = start + jlo; j < stop + jlo; ++j) {
+                                         res = reduce(transform(i, j), res);
+                                       }
+                                     } else {
+                                       const Index j = outer + jlo;
+                                       for (Index i = start + ilo; i < stop + ilo; ++i) {
+                                         res = reduce(transform(i, j), res);
+                                       }
+                                     }
+
+                                     return res;
+                                   });
+    } else
+#endif  // NS_FVM_PARALLEL
+    {
+      ReduceType res = init;
+      if constexpr (LAYOUT == Layout::F) {
+        // Column-major: i is contiguous.
+        for (Index j = jlo; j < jhi; ++j) {
+          for (Index i = ilo; i < ihi; ++i) {
+            res = reduce(transform(i, j), res);
+          }
+        }
+      } else {
+        // Row-major: j is contiguous.
+        for (Index i = ilo; i < ihi; ++i) {
+          for (Index j = jlo; j < jhi; ++j) {
+            res = reduce(transform(i, j), res);
+          }
+        }
+      }
+      return res;
+    }
+  }
+
+  template <Dimension DIM,
+            Exec EXEC = Exec::PARALLEL,
+            typename ReduceType,
+            typename TRANSFORM,
+            typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_face_i(ReduceType init,
+                                                            const TRANSFORM& transform,
+                                                            const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    const Index ihi = (DIM == Dimension::X) ? nx() + 1 : nx();
+    const Index jhi = (DIM == Dimension::X) ? ny() : ny() + 1;
+    return transform_reduce_range<EXEC>(0, ihi, 0, jhi, init, transform, reduce);
+  }
+
+  template <Dimension DIM,
+            Exec EXEC = Exec::PARALLEL,
+            typename ReduceType,
+            typename TRANSFORM,
+            typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_face_a(ReduceType init,
+                                                            const TRANSFORM& transform,
+                                                            const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    const Index ihi = (DIM == Dimension::X) ? nx() + nghost() + 1 : nx() + nghost();
+    const Index jhi = (DIM == Dimension::X) ? ny() + nghost() : ny() + nghost() + 1;
+    return transform_reduce_range<EXEC>(-nghost(), ihi, -nghost(), jhi, init, transform, reduce);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_i(ReduceType init,
+                                                       const TRANSFORM& transform,
+                                                       const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    return transform_reduce_range<EXEC>(0, nx(), 0, ny(), init, transform, reduce);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_a(ReduceType init,
+                                                       const TRANSFORM& transform,
+                                                       const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    return transform_reduce_range<EXEC>(
+        -nghost(), nx() + nghost(), -nghost(), ny() + nghost(), init, transform, reduce);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_vertex_i(ReduceType init,
+                                                              const TRANSFORM& transform,
+                                                              const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    return transform_reduce_range<EXEC>(0, nx() + 1, 0, ny() + 1, init, transform, reduce);
+  }
+
+  template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
+  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_vertex_a(ReduceType init,
+                                                              const TRANSFORM& transform,
+                                                              const REDUCE& reduce) const noexcept
+      -> ReduceType {
+    return transform_reduce_range<EXEC>(
+        -nghost(), nx() + 1 + nghost(), -nghost(), ny() + 1 + nghost(), init, transform, reduce);
   }
 };
 

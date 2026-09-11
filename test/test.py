@@ -34,16 +34,18 @@ Results = Dict[Tuple[str, Union[int, None]], TestResult]
 class TestCase:
     name: str
     input: Union[List[int], None]
+    parallel: bool
 
 ALL_TESTS = [
-    TestCase("Taylor-Green-MG",     [8, 16, 64]),
-    TestCase("Taylor-Green-FFT",    [8, 16, 64]),
-    TestCase("Multigrid",           [32, 64, 128, 512, 1024]),
-    TestCase("Polar-Couette",       [8, 16, 32]),
-    TestCase("Channel-MG",          [16, 32, 64]),
-    TestCase("Channel-FFT",         [16, 32, 64]),
-    TestCase("Advection-Cartesian", [16, 32, 64, 128]),
-    TestCase("Advection-Polar",     [16, 32, 64, 128]),
+    TestCase("Taylor-Green-MG",     [8, 16, 64],                False),
+    TestCase("Taylor-Green-FFT",    [8, 16, 64],                False),
+    TestCase("Multigrid",           [32, 64, 128, 512, 1024],   False),
+    TestCase("Polar-Couette",       [8, 16, 32],                False),
+    TestCase("Channel-MG",          [16, 32, 64],               False),
+    TestCase("Channel-FFT",         [16, 32, 64],               False),
+    TestCase("Advection-Cartesian", [16, 32, 64, 128],          False),
+    TestCase("Advection-Polar",     [16, 32, 64, 128],          False),
+    TestCase("Iterator",            None,                       True),
 ]
 
 
@@ -54,16 +56,27 @@ def run_cmd(cmd, echo=False):
     return ret.returncode, ret.stdout.decode("utf-8"), ret.stderr.decode("utf-8")
 
 
-def build_tests(cases: List[TestCase], jobs: int = 1, parallel: bool = False, verbose: bool = False) -> bool:
-    targets = [f"{BIN_DIR}/{case.name}" for case in cases]
+def build_tests(cases: List[TestCase], jobs: int = 1, force_parallel: bool = False, verbose: bool = False) -> bool:
+    parallel_flag    = "PARALLEL=1"
+    serial_targets   = [f"{BIN_DIR}/{case.name}" for case in cases if not case.parallel and not force_parallel]
+    parallel_targets = [f"{BIN_DIR}/{case.name}" for case in cases if case.parallel or force_parallel]
 
-    print(f"[INFO] Build {len(targets)} target(s) with -j{jobs}")
-    parallel_flag = "PARALLEL=1" if parallel else "PARALLEL=0"
-    ret, stdout, stderr = run_cmd(["make", parallel_flag, "-B", f"-j{jobs}", *targets], echo=verbose)
-    if ret != 0:
-        print("Build failed", file=sys.stderr)
-        print(stderr, file=sys.stderr)
-        return False
+    if len(serial_targets) > 0:
+        print(f"[INFO] Build {len(serial_targets)} serial target(s) with -j{jobs}")
+        ret, stdout, stderr = run_cmd(["make", "-B", f"-j{jobs}", *serial_targets], echo=verbose)
+        if ret != 0:
+            print("Build failed", file=sys.stderr)
+            print(stderr, file=sys.stderr)
+            return False
+
+    if len(parallel_targets) > 0:
+        print(f"[INFO] Build {len(parallel_targets)} parallel target(s) with -j{jobs}")
+        ret, stdout, stderr = run_cmd(["make", parallel_flag, "-B", f"-j{jobs}", *parallel_targets], echo=verbose)
+        if ret != 0:
+            print("Build failed", file=sys.stderr)
+            print(stderr, file=sys.stderr)
+            return False
+
     return True
 
 
@@ -252,7 +265,7 @@ def parse_args(argv: Union[List[str], None] = None) -> Tuple[argparse.Namespace,
 
 def main():
     args, cases = parse_args()
-    if not build_tests(cases, jobs=args.jobs, parallel=args.parallel, verbose=args.verbose):
+    if not build_tests(cases, jobs=args.jobs, force_parallel=args.parallel, verbose=args.verbose):
         sys.exit(1)
     results = run_tests(cases, jobs=args.jobs, verbose=args.verbose)
     render_results(results)
