@@ -12,12 +12,12 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
 #include "MultigridPoisson.hpp"
 #include "Temperature.hpp"
-#include "VTKWriter.hpp"
 
 using Float           = double;
 
@@ -174,7 +174,7 @@ auto main(int argc, char** argv) -> int {
   fill(T, 293.15);
   apply_bconds(grid, T_bconds, T, t);
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
   writer.add_field("div", div);

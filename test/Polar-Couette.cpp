@@ -6,11 +6,11 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
 #include "MultigridPoisson.hpp"
-#include "VTKWriter.hpp"
 
 #include "Test-Common.hpp"
 
@@ -124,7 +124,7 @@ auto main(int argc, char** argv) -> int {
     ua.y(i, j) = 0.0;
   });
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("ua", ua);
   writer.add_field("p", p);

@@ -9,9 +9,9 @@
 #include <Igor/Timer.hpp>
 
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "MultigridPoisson.hpp"
-#include "VTKWriter.hpp"
 
 using Float           = double;
 constexpr auto pi     = std::numbers::pi_v<Float>;
@@ -101,7 +101,7 @@ auto main(int argc, char** argv) -> int {
 
   const auto output_dir = "./test/output/Multigrid-" + std::to_string(N);
   if (!init_output_directory(output_dir)) { return 1; }
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("f_exp", f_exp);
   writer.add_field("f_fft", f_fft);
   writer.add_field("f_gs", f_gs);

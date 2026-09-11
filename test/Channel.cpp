@@ -18,10 +18,10 @@
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Mac.hpp"
 #include "Monitor.hpp"
-#include "VTKWriter.hpp"
 
 #include "Test-Common.hpp"
 
@@ -153,7 +153,7 @@ auto main(int argc, char** argv) -> int {
   apply_velocity_bconds(grid, u_bconds, v_bconds, u);
   interpolate(grid, u, ui);
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
   writer.add_field("div", div);

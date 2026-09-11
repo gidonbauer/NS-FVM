@@ -225,6 +225,9 @@ class HDFWriter {
     if (x == nullptr && y == nullptr) {
       write_grid_unmaterialized(grid_group);
     } else if (x != nullptr && y != nullptr) {
+      if (m_coords == Coordinates::POLAR) {
+        Igor::Todo("Writing polar coordinates with ALE is not supported yet.");
+      }
       write_scalar(grid_group, "x", x->scalar());
       write_scalar(grid_group, "y", y->scalar());
     } else {

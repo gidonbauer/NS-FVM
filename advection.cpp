@@ -5,9 +5,9 @@
 #include <Igor/Timer.hpp>
 
 #include "Grid.hpp"
+#include "HDFWriter.hpp"
 #include "IO.hpp"
 #include "Quadrature.hpp"
-#include "VTKWriter.hpp"
 
 using Float                  = double;
 
@@ -174,7 +174,7 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
   }
   boundary_conditions(u);
 
-  VTKWriter writer(output_dir, grid);
+  HDFWriter writer(output_dir, grid);
   writer.add_field("u", u);
   if (!writer.write(t)) { return false; }
 
