@@ -27,7 +27,7 @@ constexpr Float mu        = 1e-3;
 constexpr Float Re        = Uinf * rho * r_min / mu;
 
 constexpr Float CFL       = 0.7;
-constexpr Float tend      = 100.0;
+constexpr Float tend      = 200.0;
 // = Setup =========================================================================================
 
 // =================================================================================================
@@ -174,7 +174,7 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
 
-  Float dt_write = tend / 50.0;
+  Float dt_write = 2.0;
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
@@ -224,7 +224,7 @@ auto main(int argc, char** argv) -> int {
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
-    if (t > 50.0) { dt_write = tend / 200.0; }
+    if (t > 80.0) { dt_write = 0.5; }
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }

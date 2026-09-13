@@ -230,23 +230,22 @@ def parse_args(argv: Union[List[str], None] = None) -> Tuple[argparse.Namespace,
     p.add_argument(
         "-j", "--jobs",
         type=int, nargs="?", const=os.cpu_count() or 1, default=1, metavar="N",
-        help="run N build/test jobs in parallel "
-             "(default: 1; bare -j uses all %d cores)" % (os.cpu_count() or 1),
+        help=f"run N build/test jobs in parallel (default: 1; bare -j uses all {os.cpu_count() or 1} cores)",
     )
     p.add_argument(
         "-p", "--parallel",
         action="store_true",
-        help="Build the test case with PARALLEL=1",
+        help="build all the test case with PARALLEL=1 (default: False)",
     )
     p.add_argument(
         "-v", "--verbose",
         action="store_true",
-        help="Print executed commands",
+        help="print executed commands (default: False)",
     )
     p.add_argument(
             "case_names",
             nargs="*",
-            help="Test cases to run, default is all test cases."
+            help="test cases to run, default is all test cases."
     )
     args = p.parse_args(argv)
     if args.jobs < 1:
