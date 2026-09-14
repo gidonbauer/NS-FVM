@@ -456,6 +456,19 @@ class Scalar {
 
   [[nodiscard]] constexpr auto data() const noexcept -> Float* { return m_data; }
 
+  [[nodiscard]] constexpr auto stride_x() const noexcept -> Index {
+    if constexpr (LAYOUT == Layout::C) { return m_ny + 2 * m_nghost; }
+    return 1;
+  }
+  [[nodiscard]] constexpr auto stride_y() const noexcept -> Index {
+    if constexpr (LAYOUT == Layout::C) { return 1; }
+    return m_nx + 2 * m_nghost;
+  }
+
+  [[nodiscard]] constexpr auto at(Index i, Index j) const noexcept -> Float* {
+    return &operator()(i, j);
+  }
+
   [[nodiscard]] constexpr auto size() const noexcept -> Index {
     return (m_nx + 2 * m_nghost) * (m_ny + 2 * m_nghost);
   }

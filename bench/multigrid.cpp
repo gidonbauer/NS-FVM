@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 
+#include <poisfft.h>
+
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
 
@@ -93,17 +95,61 @@ bench_solve(SolverType& solver, const Problem& problem, ScalarType sol, Index re
   return result;
 }
 
+[[nodiscard]] auto bench_solve(PoisFFT::Solver<2, Float>& solver,
+                               const GridType& grid,
+                               const Problem& problem,
+                               ScalarType sol,
+                               Index reps) -> BenchResult {
+  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
+  copy(problem.sol0, sol);
+  solver.execute(sol.data(), problem.rhs.data(), ngs.data(), ngs.data());
+
+  std::vector<Float> samples;
+  samples.reserve(static_cast<size_t>(reps));
+
+  BenchResult result{};
+  for (Index rep = 0; rep < reps; ++rep) {
+    copy(problem.sol0, sol);
+
+    const auto t_begin = std::chrono::steady_clock::now();
+    solver.execute(sol.data(), problem.rhs.data(), ngs.data(), ngs.data());
+    const auto t_end = std::chrono::steady_clock::now();
+
+    samples.push_back(std::chrono::duration<Float>(t_end - t_begin).count());
+    result.cycles        = -1;
+    result.num_iter_pre  = -1;
+    result.num_iter_post = -1;
+    result.res           = grid.transform_reduce_i(
+        0.0,
+        FOREACH_FUNC {
+          const auto L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) / Igor::sqr(grid.dx()) +
+                         (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) / Igor::sqr(grid.dy());
+          return std::abs(problem.rhs(i, j) - L);
+        },
+        [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
+    result.converged = true;
+  }
+
+  result.time = summarize(std::move(samples));
+  return result;
+}
+
 void report(const GridType& grid,
             const Problem& problem,
             const BenchResult& result,
             std::FILE* file) {
   constexpr Float TO_MS = 1e3;
-
   // NOLINTBEGIN
+  IGOR_DEFER(std::fputc('\n', file););
+
   std::fprintf(file, "%s (dt = %.4e, tol = %.4e)\n", problem.name.c_str(), problem.dt, problem.tol);
-  std::fprintf(file, "  cycles        = %d\n", result.cycles);
-  std::fprintf(file, "  num_iter_pre  = %d\n", result.num_iter_pre);
-  std::fprintf(file, "  num_iter_post = %d\n", result.num_iter_post);
+  if (result.cycles >= 0) { std::fprintf(file, "  cycles        = %d\n", result.cycles); }
+  if (result.num_iter_pre >= 0) {
+    std::fprintf(file, "  num_iter_pre  = %d\n", result.num_iter_pre);
+  }
+  if (result.num_iter_post >= 0) {
+    std::fprintf(file, "  num_iter_post = %d\n", result.num_iter_post);
+  }
   std::fprintf(file, "  res           = %.4e\n", result.res);
   std::fprintf(file, "  converged     = %s\n", result.converged ? "yes" : "no");
   std::fprintf(file, "  wall-time:\n");
@@ -112,6 +158,7 @@ void report(const GridType& grid,
   std::fprintf(file, "    mean   = %.4f ms\n", result.time.mean * TO_MS);
   std::fprintf(file, "    max    = %.4f ms\n", result.time.max * TO_MS);
 
+  if (result.cycles < 0) { return; }
   if (result.cycles == 0) {
     std::fprintf(file,
                  "    [WARN] zero cycles: tolerance met by the initial guess, timing is a residual "
@@ -125,7 +172,6 @@ void report(const GridType& grid,
   const Float cell_cycles = cells * cycles / result.time.median * 1e-6;
   std::fprintf(file, "  wall-time per cycle = %.4f ms\n", per_cycle * TO_MS);
   std::fprintf(file, "  throughput          = %.4f Mcell-cycles/s\n", cell_cycles);
-  std::fputc('\n', file);
   // NOLINTEND
 }
 
@@ -243,6 +289,112 @@ void run(Index N, Float abstol, Index reps, Index spinup, std::FILE* file) {
   auto sol = grid.alloc_scalar();
   for (const Problem& problem : {first, developed}) {
     const auto result = bench_solve(solver, problem, sol, reps);
+    report(grid, problem, result, file);
+  }
+}
+
+void run_fft(Index N, Index reps, Index spinup, std::FILE* file) {
+  GridType grid(x_min, x_max, N, y_min, y_max, N, 1);
+
+  auto u_old = grid.alloc_face_vector();
+  auto u     = grid.alloc_face_vector();
+
+  auto FUX   = grid.alloc_scalar();
+  auto FUY   = grid.alloc_vertex_scalar();
+  auto FVX   = grid.alloc_vertex_scalar();
+  auto FVY   = grid.alloc_scalar();
+
+  auto p     = grid.alloc_scalar();
+  auto dp    = grid.alloc_scalar();
+  auto div   = grid.alloc_scalar();
+
+  Float dt   = 0.0;
+  Float t    = 0.0;
+
+  const BConds<Float> u_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Dirichlet<Float>{.val = 0.0},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = Uwall},
+  };
+  const BConds<Float> v_bconds{
+      .left   = Dirichlet<Float>{.val = 0.0},
+      .right  = Dirichlet<Float>{.val = 0.0},
+      .bottom = Dirichlet<Float>{.val = 0.0},
+      .top    = Dirichlet<Float>{.val = 0.0},
+  };
+  const BConds<Float> dp_bconds{
+      .left   = Neumann{},
+      .right  = Neumann{},
+      .bottom = Neumann{},
+      .top    = Neumann{},
+  };
+
+  const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
+  const std::array<Float, 2> Ls = {grid.x_max() - grid.x_min(), grid.y_max() - grid.y_min()};
+  const std::array<int, 4> BCs  = {
+      PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG, PoisFFT::NEUMANN_STAG};
+  const std::array<int, 2> ngs = {grid.nghost(), grid.nghost()};
+  PoisFFT::Solver<2, Float> solver(ns.data(), Ls.data(), BCs.data(), PoisFFT::FINITE_DIFFERENCE_2);
+
+  Problem first{
+      .name          = "FFT: Cartesian, initial step, cold start",
+      .rhs           = grid.alloc_scalar(),
+      .sol0          = grid.alloc_scalar(),
+      .tol           = 0.0,
+      .dt            = 0.0,
+      .num_iter_post = -1,
+  };
+  Problem developed{
+      .name          = "FFT: Cartesian, developed profile, warm start",
+      .rhs           = grid.alloc_scalar(),
+      .sol0          = grid.alloc_scalar(),
+      .tol           = 0.0,
+      .dt            = 0.0,
+      .num_iter_post = -1,
+  };
+
+  for (Index iter = 0; iter < spinup; ++iter) {
+    dt = adjust_dt(grid, u, rho, mu, CFL);
+
+    copy(u, u_old);
+
+    for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
+      const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
+
+      // 1) Predictor
+      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
+      apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
+
+      // 2) Pressure correction
+      calc_div(grid, u, div);
+      grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
+      if (iter == 0 && sub_iter == 1) {
+        copy(div, first.rhs);
+        fill(first.sol0, 0.0);
+        first.tol = -1.0;
+        first.dt  = local_dt;
+      }
+      if (iter + 1 == spinup && sub_iter == 1) {
+        copy(div, developed.rhs);
+        fill(developed.sol0, 0.0);
+        developed.tol = -1.0;
+        developed.dt  = local_dt;
+      }
+      solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
+      apply_bconds(grid, dp_bconds, dp, t);
+
+      // 3) Project
+      correct_velocity(grid, dp, rho, local_dt, u, p);
+    }
+
+    t += dt;
+  }
+
+  auto sol = grid.alloc_scalar();
+  for (const Problem& problem : {first, developed}) {
+    const auto result = bench_solve(solver, grid, problem, sol, reps);
     report(grid, problem, result, file);
   }
 }
@@ -560,8 +712,9 @@ auto main(int argc, char** argv) -> int {
   std::fputc('\n', out);
   // NOLINTEND
 
-  PolarCase::run(N, abstol, reps, spinup, out);
+  CartesianCase::run_fft(N, reps, spinup, out);
   CartesianCase::run(N, abstol, reps, spinup, out);
+  PolarCase::run(N, abstol, reps, spinup, out);
 
   if (out != stdout) { Igor::Info("Wrote benchmark to `{}`", filename); }
 }
