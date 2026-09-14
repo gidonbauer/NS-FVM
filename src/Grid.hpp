@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
@@ -46,12 +45,6 @@ constexpr Index MIN_TILE_SIZE     = 64;    // Min. tile size
 #endif
 }  // namespace Parallel
 #endif
-
-template <typename T>
-void update_maximum_atomic(std::atomic<T>& maximum_value, T const& value) noexcept {
-  T prev_value = maximum_value;
-  while (prev_value < value && !maximum_value.compare_exchange_weak(prev_value, value)) {}
-}
 
 // TODO: Consider blocked layout. Each block should have its own ghost layer around it. This
 //       requires a halo exchange after each update but opens up the path to efficient
@@ -287,14 +280,14 @@ class Grid {
   // = transform_reduce ============================================================================
   // ===============================================================================================
   template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_range(Index ilo,
-                                                           Index ihi,
-                                                           Index jlo,
-                                                           Index jhi,
-                                                           ReduceType init,
-                                                           const TRANSFORM& transform,
-                                                           const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_range(Index ilo,
+                         Index ihi,
+                         Index jlo,
+                         Index jhi,
+                         ReduceType init,
+                         const TRANSFORM& transform,
+                         const REDUCE& reduce) const noexcept -> ReduceType {
 #ifdef NS_FVM_PARALLEL
     if constexpr (EXEC == Exec::PARALLEL) {
       const Index n_outer = LAYOUT == Layout::C ? ihi - ilo : jhi - jlo;
@@ -362,10 +355,10 @@ class Grid {
             typename ReduceType,
             typename TRANSFORM,
             typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_face_i(ReduceType init,
-                                                            const TRANSFORM& transform,
-                                                            const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_face_i(ReduceType init,
+                          const TRANSFORM& transform,
+                          const REDUCE& reduce) const noexcept -> ReduceType {
     const Index ihi = (DIM == Dimension::X) ? nx() + 1 : nx();
     const Index jhi = (DIM == Dimension::X) ? ny() : ny() + 1;
     return transform_reduce_range<EXEC>(0, ihi, 0, jhi, init, transform, reduce);
@@ -376,45 +369,45 @@ class Grid {
             typename ReduceType,
             typename TRANSFORM,
             typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_face_a(ReduceType init,
-                                                            const TRANSFORM& transform,
-                                                            const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_face_a(ReduceType init,
+                          const TRANSFORM& transform,
+                          const REDUCE& reduce) const noexcept -> ReduceType {
     const Index ihi = (DIM == Dimension::X) ? nx() + nghost() + 1 : nx() + nghost();
     const Index jhi = (DIM == Dimension::X) ? ny() + nghost() : ny() + nghost() + 1;
     return transform_reduce_range<EXEC>(-nghost(), ihi, -nghost(), jhi, init, transform, reduce);
   }
 
   template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_i(ReduceType init,
-                                                       const TRANSFORM& transform,
-                                                       const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_i(ReduceType init,
+                     const TRANSFORM& transform,
+                     const REDUCE& reduce) const noexcept -> ReduceType {
     return transform_reduce_range<EXEC>(0, nx(), 0, ny(), init, transform, reduce);
   }
 
   template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_a(ReduceType init,
-                                                       const TRANSFORM& transform,
-                                                       const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_a(ReduceType init,
+                     const TRANSFORM& transform,
+                     const REDUCE& reduce) const noexcept -> ReduceType {
     return transform_reduce_range<EXEC>(
         -nghost(), nx() + nghost(), -nghost(), ny() + nghost(), init, transform, reduce);
   }
 
   template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_vertex_i(ReduceType init,
-                                                              const TRANSFORM& transform,
-                                                              const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_vertex_i(ReduceType init,
+                            const TRANSFORM& transform,
+                            const REDUCE& reduce) const noexcept -> ReduceType {
     return transform_reduce_range<EXEC>(0, nx() + 1, 0, ny() + 1, init, transform, reduce);
   }
 
   template <Exec EXEC = Exec::PARALLEL, typename ReduceType, typename TRANSFORM, typename REDUCE>
-  NS_FVM_FOREACH_DEF constexpr auto transform_reduce_vertex_a(ReduceType init,
-                                                              const TRANSFORM& transform,
-                                                              const REDUCE& reduce) const noexcept
-      -> ReduceType {
+  [[nodiscard]] NS_FVM_FOREACH_DEF constexpr auto
+  transform_reduce_vertex_a(ReduceType init,
+                            const TRANSFORM& transform,
+                            const REDUCE& reduce) const noexcept -> ReduceType {
     return transform_reduce_range<EXEC>(
         -nghost(), nx() + 1 + nghost(), -nghost(), ny() + 1 + nghost(), init, transform, reduce);
   }

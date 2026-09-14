@@ -29,13 +29,18 @@ class MultigridSolver {
 
   // -----------------------------------------------------------------------------------------------
   constexpr void make_mean_free(const Grid& grid, Scalar s) const noexcept {
-    Float mean = 0.0;
-    Float vol  = 0.0;
-    grid.template foreach_i<Exec::SERIAL>([=, &mean, &vol](Index i, Index j) {
-      mean += s(i, j) * grid.dv(i, j);
-      vol  += grid.dv(i, j);
-    });
-    mean /= vol;
+    struct SumVol {
+      Float sum, vol;
+    };
+    const SumVol sv = grid.transform_reduce_i(
+        SumVol{.sum = 0.0, .vol = 0.0},
+        FOREACH_FUNC { return SumVol{.sum = s(i, j) * grid.dv(i, j), .vol = grid.dv(i, j)}; },
+        [](SumVol lhs, const SumVol& rhs) {
+          lhs.sum += rhs.sum;
+          lhs.vol += rhs.vol;
+          return lhs;
+        });
+    const auto mean = sv.sum / sv.vol;
     grid.foreach_i(FOREACH_FUNC { s(i, j) -= mean; });
   }
 
@@ -48,32 +53,35 @@ class MultigridSolver {
     auto rhs            = level.rhs;
     auto res            = level.res;
 
-    // apply_neumann_bconds(level.grid, sol);
     apply_bconds(level.grid, m_bconds, sol, -1.0);
-    std::atomic<Float> max_res = 0.0;
     switch (level.grid.coords()) {
       case Coordinates::CARTESIAN:
-        level.grid.foreach_i([=, &max_res](Index i, Index j) {
-          const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
-                          (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-          res(i, j)     = rhs(i, j) - L;
-          update_maximum_atomic(max_res, std::abs(res(i, j)));
-        });
+        return level.grid.transform_reduce_i(
+            0.0,
+            FOREACH_FUNC {
+              const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
+                              (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+              res(i, j)     = rhs(i, j) - L;
+              return std::abs(res(i, j));
+            },
+            [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
         break;
       case Coordinates::POLAR:
-        level.grid.foreach_i([=, &max_res](Index i, Index j) {
-          const Float dpdr     = (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy;
-          const Float ddpdrr   = (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-          const Float ddpdthth = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2;
-          const Float r        = level.grid.ym(j);
+        return level.grid.transform_reduce_i(
+            0.0,
+            FOREACH_FUNC {
+              const Float dpdr     = (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy;
+              const Float ddpdrr   = (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+              const Float ddpdthth = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2;
+              const Float r        = level.grid.ym(j);
 
-          const Float L        = ddpdrr + dpdr / r + ddpdthth / Igor::sqr(r);
-          res(i, j)            = rhs(i, j) - L;
-          update_maximum_atomic(max_res, std::abs(res(i, j)));
-        });
-        break;
+              const Float L        = ddpdrr + dpdr / r + ddpdthth / Igor::sqr(r);
+              res(i, j)            = rhs(i, j) - L;
+              return std::abs(res(i, j));
+            },
+            [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
     }
-    return static_cast<Float>(max_res);
+    Igor::Panic("Unreachable.");
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -86,7 +94,6 @@ class MultigridSolver {
 
     // Do exactly num_iter iterations of the Gauss-Seidel algorithm
     for (Index iter = 0; iter < num_iter; ++iter) {
-      // apply_neumann_bconds(level.grid, sol);
       apply_bconds(level.grid, m_bconds, sol, -1.0);
 #ifndef NS_FVM_PARALLEL
       level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
@@ -135,7 +142,6 @@ class MultigridSolver {
 
     // Do exactly num_iter iterations of the Gauss-Seidel algorithm
     for (Index iter = 0; iter < num_iter; ++iter) {
-      // apply_neumann_bconds(level.grid, sol);
       apply_bconds(level.grid, m_bconds, sol, -1.0);
 #ifndef NS_FVM_PARALLEL
       level.grid.template foreach_i<Exec::SERIAL>(FOREACH_FUNC {
@@ -216,7 +222,6 @@ class MultigridSolver {
     auto lsol = level.sol;
     auto csol = coarse.sol;
 
-    // apply_neumann_bconds(coarse.grid, coarse.sol);
     apply_bconds(coarse.grid, m_bconds, coarse.sol, -1.0);
     // Bilinear interpolation of the coarse correction onto the finer solution
     level.grid.foreach_i(FOREACH_FUNC {

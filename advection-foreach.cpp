@@ -201,18 +201,20 @@ auto run(const std::string& output_base_dir, Index N) -> bool {
     if (should_save(t, dt, dt_write, tend) && !writer.write(t)) { return false; }
   }
 
-  Float L1_error = 0.0;
-  grid.foreach_i<Exec::SERIAL>([=, &L1_error](Index i, Index j) {
-    const Float x0 = grid.x_min() + i * grid.dx();
-    const Float x1 = x0 + grid.dx();
-    const Float y0 = grid.y_min() + j * grid.dy();
-    const Float y1 = y0 + grid.dy();
+  Float L1_error = grid.transform_reduce_i(
+      0.0,
+      FOREACH_FUNC {
+        const Float x0 = grid.x_min() + i * grid.dx();
+        const Float x1 = x0 + grid.dx();
+        const Float y0 = grid.y_min() + j * grid.dy();
+        const Float y1 = y0 + grid.dy();
 
-    const Float u_exp =
-        quadrature([&](Float x, Float y) { return u_analytical(x, y, t); }, x0, x1, y0, y1) /
-        grid.dv(i, j);
-    L1_error += grid.dv(i, j) * std::abs(u(i, j) - u_exp);
-  });
+        const Float u_exp =
+            quadrature([&](Float x, Float y) { return u_analytical(x, y, t); }, x0, x1, y0, y1) /
+            grid.dv(i, j);
+        return grid.dv(i, j) * std::abs(u(i, j) - u_exp);
+      },
+      std::plus<>{});
   Igor::Info("{} => {}", N, L1_error);
 
   return true;

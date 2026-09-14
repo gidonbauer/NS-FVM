@@ -136,11 +136,13 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1 = 0.0;
-  grid.foreach_i<Exec::SERIAL>([=, &L1](Index i, Index j) {
-    const auto s_exp  = s_analytical(grid.xm(i), grid.ym(j));
-    L1               += std::abs(s_exp - s(i, j)) * grid.dv(i, j);
-  });
+  Float L1 = grid.transform_reduce_i(
+      0.0,
+      FOREACH_FUNC {
+        const auto s_exp = s_analytical(grid.xm(i), grid.ym(j));
+        return std::abs(s_exp - s(i, j)) * grid.dv(i, j);
+      },
+      std::plus<>{});
 
   Igor::Info("L1({}) = {:.8e}", N, L1);
   Igor::Info("L1_exp({}) = {:.8e}", N, Expected::L1(N));

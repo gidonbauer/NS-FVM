@@ -34,10 +34,10 @@ template <typename Float, Layout LAYOUT>
 constexpr auto L1error(const Grid<Float, LAYOUT>& grid,
                        const Scalar<Float, LAYOUT> f_true,
                        const Scalar<Float, LAYOUT> f_pred) -> Float {
-  Float L1 = 0.0;
-  grid.template foreach_i<Exec::SERIAL>(
-      [=, &L1](Index i, Index j) { L1 += std::abs(f_true(i, j) - f_pred(i, j)) * grid.dv(i, j); });
-  return L1;
+  return grid.transform_reduce_i(
+      0.0,
+      FOREACH_FUNC { return std::abs(f_true(i, j) - f_pred(i, j)) * grid.dv(i, j); },
+      std::plus<>{});
 }
 
 auto main(int argc, char** argv) -> int {

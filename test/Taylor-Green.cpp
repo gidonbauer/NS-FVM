@@ -227,16 +227,20 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1_u = 0.0;
-  grid.foreach_face_i<Dimension::X, Exec::SERIAL>([=, &L1_u](Index i, Index j) {
-    const auto u_exp  = u_analytical(grid.x(i), grid.ym(j), t);
-    L1_u             += std::abs(u_exp - u.x(i, j)) * grid.dv(i, j);
-  });
-  Float L1_v = 0.0;
-  grid.foreach_face_i<Dimension::Y, Exec::SERIAL>([=, &L1_v](Index i, Index j) {
-    const auto v_exp  = v_analytical(grid.xm(i), grid.y(j), t);
-    L1_v             += std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
-  });
+  Float L1_u = grid.transform_reduce_face_i<Dimension::X>(
+      0.0,
+      FOREACH_FUNC {
+        const auto u_exp = u_analytical(grid.x(i), grid.ym(j), t);
+        return std::abs(u_exp - u.x(i, j)) * grid.dv(i, j);
+      },
+      std::plus<>{});
+  Float L1_v = grid.transform_reduce_face_i<Dimension::Y>(
+      0.0,
+      FOREACH_FUNC {
+        const auto v_exp = v_analytical(grid.xm(i), grid.y(j), t);
+        return std::abs(v_exp - u.y(i, j)) * grid.dv(i, j);
+      },
+      std::plus<>{});
 
   bool any_failed = false;
   if (L1_u > 1.1 * Expected::L1u(N)) {

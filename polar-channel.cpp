@@ -223,12 +223,13 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1 = 0.0;
-  grid.foreach_range<Exec::SERIAL>(
-      u.x.nx() / 2, u.x.nx() / 2 + 1, 0, u.x.ny(), [=, &L1](Index i, Index j) {
-        const auto uth_exp  = uth_analytical(grid.ym(j));
-        L1                 += std::abs(uth_exp - u.x(i, j)) * grid.dy();
-      });
+  Float L1 = grid.transform_reduce_i(
+      0.0,
+      FOREACH_FUNC {
+        const auto uth_exp = uth_analytical(grid.ym(j));
+        return std::abs(uth_exp - u.x(i, j)) * grid.dy();
+      },
+      std::plus<>{});
   Igor::Info("L1({}) = {:.8e}", N, L1);
 
   Igor::Info("Ok.");

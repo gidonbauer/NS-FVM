@@ -203,12 +203,17 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1 = 0.0;
-  grid.foreach_range<Exec::SERIAL>(
-      u.x.nx() / 2, u.x.nx() / 2 + 1, 0, u.x.ny(), [=, &L1](Index i, Index j) {
-        const auto uth_exp  = uth_analytical(grid.ym(j));
-        L1                 += std::abs(uth_exp - u.x(i, j)) * grid.dy();
-      });
+  Float L1 = grid.transform_reduce_range(
+      u.x.nx() / 2,
+      u.x.nx() / 2 + 1,
+      0,
+      u.x.ny(),
+      0.0,
+      FOREACH_FUNC {
+        const auto uth_exp = uth_analytical(grid.ym(j));
+        return std::abs(uth_exp - u.x(i, j)) * grid.dy();
+      },
+      std::plus<>{});
   if (L1 > 1.1 * Expected::L1(NY)) {
     Igor::Error("u_theta error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1(NY),

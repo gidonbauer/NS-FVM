@@ -73,15 +73,6 @@ constexpr void update_u(const Grid<Float, LAYOUT>& grid,
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void shift_dp_to_zero(const Grid<Float, LAYOUT>& grid, Scalar<Float, LAYOUT> dp) {
-  Float avg_dp = 0.0;
-  grid.template foreach_a<Exec::SERIAL>([=, &avg_dp](Index i, Index j) { avg_dp += dp(i, j); });
-  avg_dp /= static_cast<Float>(grid.nx() * grid.ny());
-  grid.foreach_a(FOREACH_FUNC { dp(i, j) -= avg_dp; });
-}
-
-// =================================================================================================
-template <typename Float, Layout LAYOUT>
 constexpr void correct_velocity(const Grid<Float, LAYOUT>& grid,
                                 const Scalar<Float, LAYOUT> dp,
                                 Float rho,

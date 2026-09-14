@@ -76,12 +76,14 @@ constexpr auto adjust_dt(const Grid<Float, LAYOUT>& grid,
                          Float rho,
                          Float mu,
                          Float CFL) noexcept -> Float {
-  Float ux_max = 0.0;
-  Float uy_max = 0.0;
-  grid.template foreach_face_i<Dimension::X, Exec::SERIAL>(
-      [=, &ux_max](Index i, Index j) { ux_max = std::max(std::abs(u.x(i, j)), ux_max); });
-  grid.template foreach_face_i<Dimension::Y, Exec::SERIAL>(
-      [=, &uy_max](Index i, Index j) { uy_max = std::max(std::abs(u.y(i, j)), uy_max); });
+  Float ux_max = grid.template transform_reduce_face_i<Dimension::X>(
+      0.0,
+      FOREACH_FUNC { return std::abs(u.x(i, j)); },
+      [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
+  Float uy_max = grid.template transform_reduce_face_i<Dimension::Y>(
+      0.0,
+      FOREACH_FUNC { return std::abs(u.y(i, j)); },
+      [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
 
   // Correction for polar coordinates
   const auto hx = grid.coords() == Coordinates::POLAR ? grid.ym(0) * grid.dx() : grid.dx();
