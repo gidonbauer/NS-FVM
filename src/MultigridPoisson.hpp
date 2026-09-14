@@ -7,8 +7,11 @@
 
 template <typename Float, Layout LAYOUT>
 class MultigridSolver {
-  using Grid   = Grid<Float, LAYOUT>;
-  using Scalar = Scalar<Float, LAYOUT>;
+  using Grid                               = Grid<Float, LAYOUT>;
+  using Scalar                             = Scalar<Float, LAYOUT>;
+
+  static constexpr Index MIN_NUM_ITER_POST = 2;
+  static constexpr Index MAX_NUM_ITER_POST = 100;
 
   struct Level {
     Grid grid;
@@ -20,12 +23,8 @@ class MultigridSolver {
   BConds<Float> m_bconds;
   Index m_num_iter_pre;
   Index m_num_iter_post;
-  Index m_num_iter_coarse;
-  Index m_max_iter_coarse;
-  Index m_num_cycles                = 0;
-  Float m_res                       = 0.0;
-
-  static constexpr Float COARSE_TOL = 1e-3;
+  Index m_num_cycles = 0;
+  Float m_res        = 0.0;
 
   // -----------------------------------------------------------------------------------------------
   constexpr void make_mean_free(const Grid& grid, Scalar s) const noexcept {
@@ -45,7 +44,7 @@ class MultigridSolver {
   }
 
   // -----------------------------------------------------------------------------------------------
-  constexpr auto residual(const Level& level) const noexcept -> Float {
+  constexpr void residual(const Level& level) const noexcept {
     const Float inv_dx2 = 1.0 / Igor::sqr(level.grid.dx());
     const Float inv_dy  = 1.0 / level.grid.dy();
     const Float inv_dy2 = 1.0 / Igor::sqr(level.grid.dy());
@@ -56,32 +55,35 @@ class MultigridSolver {
     apply_bconds(level.grid, m_bconds, sol, -1.0);
     switch (level.grid.coords()) {
       case Coordinates::CARTESIAN:
-        return level.grid.transform_reduce_i(
-            0.0,
-            FOREACH_FUNC {
-              const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
-                              (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-              res(i, j)     = rhs(i, j) - L;
-              return std::abs(res(i, j));
-            },
-            [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
+        level.grid.foreach_i(FOREACH_FUNC {
+          const Float L = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2 +
+                          (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+          res(i, j)     = rhs(i, j) - L;
+          return std::abs(res(i, j));
+        });
         break;
       case Coordinates::POLAR:
-        return level.grid.transform_reduce_i(
-            0.0,
-            FOREACH_FUNC {
-              const Float dpdr     = (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy;
-              const Float ddpdrr   = (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
-              const Float ddpdthth = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2;
-              const Float r        = level.grid.ym(j);
+        level.grid.foreach_i(FOREACH_FUNC {
+          const Float dpdr     = (sol(i, j + 1) - sol(i, j - 1)) * 0.5 * inv_dy;
+          const Float ddpdrr   = (sol(i, j - 1) - 2.0 * sol(i, j) + sol(i, j + 1)) * inv_dy2;
+          const Float ddpdthth = (sol(i - 1, j) - 2.0 * sol(i, j) + sol(i + 1, j)) * inv_dx2;
+          const Float r        = level.grid.ym(j);
 
-              const Float L        = ddpdrr + dpdr / r + ddpdthth / Igor::sqr(r);
-              res(i, j)            = rhs(i, j) - L;
-              return std::abs(res(i, j));
-            },
-            [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
+          const Float L        = ddpdrr + dpdr / r + ddpdthth / Igor::sqr(r);
+          res(i, j)            = rhs(i, j) - L;
+          return std::abs(res(i, j));
+        });
+        break;
     }
-    Igor::Panic("Unreachable.");
+  }
+
+  // ===============================================================================================
+  constexpr auto max_res(const Level& level) const noexcept -> Float {
+    const auto res = level.res;
+    return level.grid.transform_reduce_i(
+        0.0,
+        FOREACH_FUNC { return std::abs(res(i, j)); },
+        [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -212,7 +214,6 @@ class MultigridSolver {
                         wt * (res(2 * i, 2 * j + 1) + res(2 * i + 1, 2 * j + 1))) /
                        (2.0 * (wb + wt));
     });
-    make_mean_free(coarse.grid, rhs);
   }
 
   // -----------------------------------------------------------------------------------------------
@@ -242,10 +243,7 @@ class MultigridSolver {
 
     // Check if we are at the coarsest level
     if (l + 1 == m_levels.size()) {
-      for (Index iter = 0; iter < m_max_iter_coarse; iter += m_num_iter_coarse) {
-        smooth(level, m_num_iter_coarse);
-        if (residual(level) <= COARSE_TOL) { break; }
-      }
+      smooth(level, m_num_iter_post);
       return;
     }
 
@@ -256,7 +254,6 @@ class MultigridSolver {
     restrict_residual(level, coarse);  // Interpolate the residual of `level` onto `rhs` of coarse
     fill(coarse.sol, 0.0);
     vcycle(l + 1);  // Solve correction equation for `coarse`
-    make_mean_free(coarse.grid, coarse.sol);
 
     // Bilinear interpolation of the coarse correction onto level
     prolongate_and_correct(coarse, level);
@@ -265,20 +262,16 @@ class MultigridSolver {
 
  public:
   constexpr MultigridSolver(const Grid& grid,
-                            BConds<Float> bconds  = {.left   = Neumann{},
-                                                     .right  = Neumann{},
-                                                     .bottom = Neumann{},
-                                                     .top    = Neumann{}},
-                            Index min_size        = 2,
-                            Index num_iter_pre    = 2,
-                            Index num_iter_post   = 2,
-                            Index num_iter_coarse = 50,
-                            Index max_iter_coarse = 5000)
+                            BConds<Float> bconds = {.left   = Neumann{},
+                                                    .right  = Neumann{},
+                                                    .bottom = Neumann{},
+                                                    .top    = Neumann{}},
+                            Index min_size       = 2,
+                            Index num_iter_pre   = 0,
+                            Index num_iter_post  = 4)
       : m_bconds(std::move(bconds)),
         m_num_iter_pre(num_iter_pre),
-        m_num_iter_post(num_iter_post),
-        m_num_iter_coarse(num_iter_coarse),
-        m_max_iter_coarse(max_iter_coarse) {
+        m_num_iter_post(num_iter_post) {
     IGOR_ASSERT(grid.nghost() >= 1, "Expected at least one ghost cell, but got {}", grid.nghost());
     IGOR_ASSERT(min_size >= 1, "Expected a positive minimum grid size, but got {}", min_size);
 
@@ -325,14 +318,27 @@ class MultigridSolver {
     make_mean_free(fine.grid, fine.rhs);
 
     bool converged = false;
+
+    residual(fine);
+    m_res            = max_res(fine);
+    Float res_before = m_res;
     for (m_num_cycles = 0; true; ++m_num_cycles) {
-      m_res = residual(fine);
-      if (m_res <= tol) {
+      if (m_num_cycles == max_iter) { break; }
+      vcycle(0);
+      residual(fine);
+      m_res = max_res(fine);
+
+      // Dynamically adapt number of post iterations; adapted from Basilisk
+      if (m_res > tol) {
+        if (res_before / m_res < 1.2 && m_num_iter_post < MAX_NUM_ITER_POST) {
+          m_num_iter_post += 1;
+        } else if (res_before / m_res > 10.0 && m_num_iter_post > MIN_NUM_ITER_POST) {
+          m_num_iter_post -= 1;
+        }
+      } else {
         converged = true;
         break;
       }
-      if (m_num_cycles == max_iter) { break; }
-      vcycle(0);
     }
 
     make_mean_free(fine.grid, fine.sol);
@@ -346,4 +352,10 @@ class MultigridSolver {
   }
   [[nodiscard]] constexpr auto num_cycles() const noexcept -> Index { return m_num_cycles; }
   [[nodiscard]] constexpr auto res() const noexcept -> Float { return m_res; }
+
+  [[nodiscard]] constexpr auto num_iter_pre() noexcept -> Index& { return m_num_iter_pre; }
+  [[nodiscard]] constexpr auto num_iter_pre() const noexcept -> Index { return m_num_iter_pre; }
+
+  [[nodiscard]] constexpr auto num_iter_post() noexcept -> Index& { return m_num_iter_post; }
+  [[nodiscard]] constexpr auto num_iter_post() const noexcept -> Index { return m_num_iter_post; }
 };

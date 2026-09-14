@@ -27,7 +27,8 @@ constexpr Float mu        = 1e-3;
 constexpr Float Re        = Uinf * rho * r_min / mu;
 
 constexpr Float CFL       = 0.7;
-constexpr Float tend      = 200.0;
+constexpr Float tend      = 25.0;
+constexpr Float dt_write  = tend / 10.0;
 // = Setup =========================================================================================
 
 // =================================================================================================
@@ -87,10 +88,11 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto output_dir = get_output_directory();
+  const auto output_dir = get_output_directory("bench/output");
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Igor::Info("Re = {}", Re);
+  Igor::Info("Re   = {}", Re);
+  Igor::Info("Uinf = {}", Uinf);
 
   Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
 
@@ -175,15 +177,12 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
 
-  Float dt_write = 2.0;
-
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
     const auto t_begin = std::chrono::high_resolution_clock::now();
 
     dt                 = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
-        dt_write,
         tend - t,
     });
 
@@ -226,7 +225,6 @@ auto main(int argc, char** argv) -> int {
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
-    if (t > 80.0) { dt_write = 0.5; }
     if (should_save(t, dt, dt_write, tend)) {
       if (!writer.write(t)) { return 1; }
     }

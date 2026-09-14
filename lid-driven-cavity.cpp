@@ -104,29 +104,26 @@ auto main(int argc, char** argv) -> int {
 
   Grid<Float, Layout::C> grid(x_min, x_max, N, y_min, y_max, N, 3);
 
-  auto u_old        = grid.alloc_face_vector();
-  auto u            = grid.alloc_face_vector();
+  auto u_old = grid.alloc_face_vector();
+  auto u     = grid.alloc_face_vector();
 
-  auto FUX          = grid.alloc_scalar();
-  auto FUY          = grid.alloc_vertex_scalar();
-  auto FVX          = grid.alloc_vertex_scalar();
-  auto FVY          = grid.alloc_scalar();
+  auto FUX   = grid.alloc_scalar();
+  auto FUY   = grid.alloc_vertex_scalar();
+  auto FVX   = grid.alloc_vertex_scalar();
+  auto FVY   = grid.alloc_scalar();
 
-  auto ui           = grid.alloc_vector();
-  auto p            = grid.alloc_scalar();
-  auto dp           = grid.alloc_scalar();
-  auto div          = grid.alloc_scalar();
+  auto ui    = grid.alloc_vector();
+  auto p     = grid.alloc_scalar();
+  auto dp    = grid.alloc_scalar();
+  auto div   = grid.alloc_scalar();
 
-  auto T_old        = grid.alloc_scalar();
-  auto T            = grid.alloc_scalar();
-  auto Tsrc         = grid.alloc_scalar();
-  auto FT           = grid.alloc_face_vector();
+  auto T_old = grid.alloc_scalar();
+  auto T     = grid.alloc_scalar();
+  auto Tsrc  = grid.alloc_scalar();
+  auto FT    = grid.alloc_face_vector();
 
-  Float dt          = 0.0;
-  Float t           = 0.0;
-
-  Index mg_cycles   = 0;
-  Float mg_residual = 0.0;
+  Float dt   = 0.0;
+  Float t    = 0.0;
 
   // = Linear solver ===============================================================================
   const std::array<int, 2> ns   = {grid.nx(), grid.ny()};
@@ -140,6 +137,9 @@ auto main(int argc, char** argv) -> int {
   // ~~~~~
 
   MultigridSolver mg_solver(grid);
+  Index mg_cycles        = 0;
+  Index mg_num_iter_post = mg_solver.num_iter_post();
+  Float mg_residual      = 0.0;
   // = Linear solver ===============================================================================
 
   const BConds<Float> u_bconds{
@@ -204,6 +204,7 @@ auto main(int argc, char** argv) -> int {
   if (multigrid) {
     monitor.add_variable(&mg_residual, "res(MG)");
     monitor.add_variable(&mg_cycles, "cycles(MG)");
+    monitor.add_variable(&mg_num_iter_post, "iter_post(MG)");
   }
   monitor.write();
 
@@ -232,8 +233,9 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (multigrid) {
-        mg_solver.solve(dp, div, 1e-6);
+        mg_solver.solve(dp, div, 1e-3 / Igor::sqr(dt));
         mg_cycles   = mg_solver.num_cycles();
+        mg_cycles   = mg_solver.num_iter_post();
         mg_residual = mg_solver.res();
       } else {
         fft_solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());

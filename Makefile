@@ -9,15 +9,13 @@ all: ${TARGETS}
 ${TARGETS}: bin/%: %.cpp ${HEADERS} | bin output
 	${CXX} ${CXX_FLAGS} ${CXX_INC} -o $@ $< ${CXX_LIB}
 
-bin:
-	mkdir -p $@
-
-output:
+bin output: %:
 	mkdir -p $@
 
 clean:
 	rm -fr bin
 
 include test/test.mk
+include bench/bench.mk
 
 .PHONY: all clean
