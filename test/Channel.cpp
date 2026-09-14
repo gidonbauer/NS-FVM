@@ -202,7 +202,7 @@ auto main(int argc, char** argv) -> int {
 #if FFT_POISSON
       solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
 #else
-      solver.solve(dp, div);
+      solver.solve(dp, div, 1e-6 / Igor::sqr(local_dt));
       mg_res    = solver.res();
       mg_cycles = solver.num_cycles();
 #endif
