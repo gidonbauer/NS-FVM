@@ -35,17 +35,97 @@ constexpr Float tend     = 5e3;
 constexpr Float dt_write = tend / 10.0;
 
 // =================================================================================================
+[[nodiscard]] auto parse_index(std::string_view str, Index& out) noexcept -> bool {
+  const auto* end = str.data() + str.size();
+  const auto res  = std::from_chars(str.data(), end, out);
+  return res.ec == std::errc{} && res.ptr == end;
+}
+
+[[nodiscard]] auto pop_arg(int& argc, char**& argv) -> char* {
+  IGOR_ASSERT(argc > 0, "No arguments to pop.");
+  argc -= 1;
+  argv += 1;
+  return argv[-1];
+}
+
+[[nodiscard]] constexpr auto strip_dashes(std::string_view arg) noexcept -> std::string_view {
+  if (arg.starts_with("--")) { return arg.substr(2); }
+  if (arg.starts_with("-")) { return arg.substr(1); }
+  return {};
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
-  const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
-  if (argc < 2) {
-    Igor::Error("{}", usage_str);
-    return 1;
+  Index N              = -1;
+  Index min_size       = 2;
+  Index num_pre        = 0;
+  Index num_post       = 4;
+  const auto* prog     = pop_arg(argc, argv);
+  const auto usage_str = Igor::detail::format(
+      "Usage: {} [--min=<min>] [--pre=<pre>] [--post=<post>] <grid size>", prog);
+
+  while (argc > 0) {
+    const std::string_view arg = pop_arg(argc, argv);
+
+    // Grid size
+    if (!arg.starts_with('-')) {
+      if (!parse_index(arg, N) || N <= 0) {
+        Igor::Error("{}", usage_str);
+        Igor::Error("  Invalid grid size `{}`", argv[1]);
+        return 1;
+      }
+      continue;
+    }
+
+    const std::string_view flag = strip_dashes(arg);
+    if (flag.empty()) {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Expected a flag but got `{}`", arg);
+      return 1;
+    }
+
+    const auto eq               = flag.find('=');
+    const std::string_view name = flag.substr(0, eq);
+
+    if (name == "h" || name == "help") {
+      Igor::Info("{}", usage_str);
+      return 0;
+    }
+
+    std::string_view value;
+    if (eq != std::string_view::npos) {
+      value = flag.substr(eq + 1);
+    } else if (argc > 0) {
+      value = pop_arg(argc, argv);
+    } else {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Flag `{}` expects a value", arg);
+      return 1;
+    }
+
+    bool ok = true;
+    if (name == "pre") {
+      ok = parse_index(value, num_pre);
+    } else if (name == "post") {
+      ok = parse_index(value, num_post);
+    } else if (name == "min") {
+      ok = parse_index(value, min_size);
+    } else {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Unknown flag `{}`", arg);
+      return 1;
+    }
+
+    if (!ok) {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Invalid value `{}` for flag `{}`", value, name);
+      return 1;
+    }
   }
 
-  Index N = 0;
-  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
+  if (N < 0) {
     Igor::Error("{}", usage_str);
-    Igor::Error("  Invalid grid size `{}`", argv[1]);
+    Igor::Error("  Did not provide grid size.");
     return 1;
   }
 
@@ -73,13 +153,6 @@ auto main(int argc, char** argv) -> int {
   Float dt   = 0.0;
   Float t    = 0.0;
 
-  // = Linear solver ===============================================================================
-  MultigridSolver solver(grid);
-  Index mg_cycles        = 0;
-  Index mg_num_iter_post = solver.num_iter_post();
-  Float mg_residual      = 0.0;
-  // = Linear solver ===============================================================================
-
   const BConds<Float> u_bconds{
       .left   = Dirichlet<Float>{.val = 0.0},
       .right  = Dirichlet<Float>{.val = 0.0},
@@ -92,6 +165,20 @@ auto main(int argc, char** argv) -> int {
       .bottom = Dirichlet<Float>{.val = 0.0},
       .top    = Dirichlet<Float>{.val = 0.0},
   };
+  const BConds<Float> dp_bconds{
+      .left   = Neumann{},
+      .right  = Neumann{},
+      .bottom = Neumann{},
+      .top    = Neumann{},
+  };
+
+  // = Linear solver ===============================================================================
+  MultigridSolver solver(grid, dp_bconds, min_size, num_pre, num_post);
+  Index mg_cycles        = 0;
+  Index mg_num_iter_pre  = solver.num_iter_pre();
+  Index mg_num_iter_post = solver.num_iter_post();
+  Float mg_residual      = 0.0;
+  // = Linear solver ===============================================================================
 
   fill(u, 0.0);
   apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
@@ -108,6 +195,7 @@ auto main(int argc, char** argv) -> int {
   Stats v_stats   = stats(grid, u.y);
   Stats div_stats = stats(grid, div);
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
+  Float iter_time = 0.0;
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
@@ -118,12 +206,16 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_residual, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
+  monitor.add_variable(&mg_num_iter_pre, "iter_pre(MG)");
   monitor.add_variable(&mg_num_iter_post, "iter_post(MG)");
+  monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
-    dt = std::min({
+    const auto t_begin = std::chrono::high_resolution_clock::now();
+
+    dt                 = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
         tend - t,
     });
@@ -142,10 +234,11 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       solver.solve(dp, div, 1e-3 / Igor::sqr(dt));
-      mg_cycles   = solver.num_cycles();
-      mg_cycles   = solver.num_iter_post();
-      mg_residual = solver.res();
-      apply_neumann_bconds(grid, dp);
+      mg_cycles        = solver.num_cycles();
+      mg_num_iter_pre  = solver.num_iter_pre();
+      mg_num_iter_post = solver.num_iter_post();
+      mg_residual      = solver.res();
+      apply_bconds(grid, dp_bconds, dp, t);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
@@ -165,6 +258,9 @@ auto main(int argc, char** argv) -> int {
       if (!writer.write(t)) { return 1; }
     }
     monitor.write();
+
+    iter_time =
+        std::chrono::duration<Float>(std::chrono::high_resolution_clock::now() - t_begin).count();
   }
 
   Igor::Info("Ok.");

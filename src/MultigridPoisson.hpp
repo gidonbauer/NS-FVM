@@ -12,6 +12,8 @@ class MultigridSolver {
 
   static constexpr Index MIN_NUM_ITER_POST = 2;
   static constexpr Index MAX_NUM_ITER_POST = 100;
+  static constexpr Index MIN_NUM_ITER_PRE  = 1;
+  static constexpr Index MAX_NUM_ITER_PRE  = 100;
 
   struct Level {
     Grid grid;
@@ -436,12 +438,16 @@ class MultigridSolver {
       residual(fine);
       m_res = max_res(fine);
 
-      // Dynamically adapt number of post iterations; adapted from Basilisk.
+      // Dynamically adapt the number of smoothing iterations; adapted from Basilisk.
+      // Pre- and post-smoothing move together.
       if (m_res > tol) {
-        if (res_before / m_res < 1.2 && m_num_iter_post < MAX_NUM_ITER_POST) {
-          m_num_iter_post += 1;
-        } else if (res_before / m_res > 10.0 && m_num_iter_post > MIN_NUM_ITER_POST) {
-          m_num_iter_post -= 1;
+        const Float reduction = res_before / m_res;
+        if (reduction < 1.2) {
+          if (m_num_iter_post < MAX_NUM_ITER_POST) { m_num_iter_post += 1; }
+          if (m_num_iter_pre > 0 && m_num_iter_pre < MAX_NUM_ITER_PRE) { m_num_iter_pre += 1; }
+        } else if (reduction > 10.0) {
+          if (m_num_iter_post > MIN_NUM_ITER_POST) { m_num_iter_post -= 1; }
+          if (m_num_iter_pre > MIN_NUM_ITER_PRE) { m_num_iter_pre -= 1; }
         }
       }
       res_before = m_res;

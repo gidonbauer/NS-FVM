@@ -74,25 +74,105 @@ constexpr void custom_velocity_top_boundary(const Grid<Float, LAYOUT>& grid,
 }
 
 // =================================================================================================
+[[nodiscard]] auto parse_index(std::string_view str, Index& out) noexcept -> bool {
+  const auto* end = str.data() + str.size();
+  const auto res  = std::from_chars(str.data(), end, out);
+  return res.ec == std::errc{} && res.ptr == end;
+}
+
+[[nodiscard]] auto pop_arg(int& argc, char**& argv) -> char* {
+  IGOR_ASSERT(argc > 0, "No arguments to pop.");
+  argc -= 1;
+  argv += 1;
+  return argv[-1];
+}
+
+[[nodiscard]] constexpr auto strip_dashes(std::string_view arg) noexcept -> std::string_view {
+  if (arg.starts_with("--")) { return arg.substr(2); }
+  if (arg.starts_with("-")) { return arg.substr(1); }
+  return {};
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
-  const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
-  if (argc < 2) {
-    Igor::Error("{}", usage_str);
-    return 1;
+  Index N              = -1;
+  Index min_size       = 2;
+  Index num_pre        = 0;
+  Index num_post       = 4;
+  const auto* prog     = pop_arg(argc, argv);
+  const auto usage_str = Igor::detail::format(
+      "Usage: {} [--min=<min>] [--pre=<pre>] [--post=<post>] <grid size>", prog);
+
+  while (argc > 0) {
+    const std::string_view arg = pop_arg(argc, argv);
+
+    // Grid size
+    if (!arg.starts_with('-')) {
+      if (!parse_index(arg, N) || N <= 0) {
+        Igor::Error("{}", usage_str);
+        Igor::Error("  Invalid grid size `{}`", argv[1]);
+        return 1;
+      }
+      continue;
+    }
+
+    const std::string_view flag = strip_dashes(arg);
+    if (flag.empty()) {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Expected a flag but got `{}`", arg);
+      return 1;
+    }
+
+    const auto eq               = flag.find('=');
+    const std::string_view name = flag.substr(0, eq);
+
+    if (name == "h" || name == "help") {
+      Igor::Info("{}", usage_str);
+      return 0;
+    }
+
+    std::string_view value;
+    if (eq != std::string_view::npos) {
+      value = flag.substr(eq + 1);
+    } else if (argc > 0) {
+      value = pop_arg(argc, argv);
+    } else {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Flag `{}` expects a value", arg);
+      return 1;
+    }
+
+    bool ok = true;
+    if (name == "pre") {
+      ok = parse_index(value, num_pre);
+    } else if (name == "post") {
+      ok = parse_index(value, num_post);
+    } else if (name == "min") {
+      ok = parse_index(value, min_size);
+    } else {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Unknown flag `{}`", arg);
+      return 1;
+    }
+
+    if (!ok) {
+      Igor::Error("{}", usage_str);
+      Igor::Error("  Invalid value `{}` for flag `{}`", value, name);
+      return 1;
+    }
   }
 
-  Index N = 0;
-  if (std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), N).ec != std::errc{} || N <= 0) {
+  if (N < 0) {
     Igor::Error("{}", usage_str);
-    Igor::Error("  Invalid grid size `{}`", argv[1]);
+    Igor::Error("  Did not provide grid size.");
     return 1;
   }
-
-  const auto output_dir = get_output_directory("bench/output");
-  if (!init_output_directory(output_dir)) { return 1; }
 
   Igor::Info("Re   = {}", Re);
   Igor::Info("Uinf = {}", Uinf);
+
+  const auto output_dir = get_output_directory("bench/output");
+  if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
 
@@ -135,8 +215,9 @@ auto main(int argc, char** argv) -> int {
       .top    = Neumann{},
   };
 
-  MultigridSolver solver(grid, dp_bconds);
+  MultigridSolver solver(grid, dp_bconds, min_size, num_pre, num_post);
   Index mg_cycles        = 0;
+  Index mg_num_iter_pre  = solver.num_iter_pre();
   Index mg_num_iter_post = solver.num_iter_post();
   Float mg_res           = 0.0;
 
@@ -173,7 +254,8 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_res, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
-  monitor.add_variable(&mg_num_iter_post, "niter_post(MG)");
+  monitor.add_variable(&mg_num_iter_pre, "iter_pre(MG)");
+  monitor.add_variable(&mg_num_iter_post, "iter_post(MG)");
   monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
 
@@ -207,6 +289,7 @@ auto main(int argc, char** argv) -> int {
                    solver.res());
       }
       mg_cycles        = solver.num_cycles();
+      mg_num_iter_pre  = solver.num_iter_pre();
       mg_num_iter_post = solver.num_iter_post();
       mg_res           = solver.res();
       apply_bconds(grid, dp_bconds, dp, t);
