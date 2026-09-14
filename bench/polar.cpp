@@ -200,7 +200,7 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (!solver.solve(dp, div, 1e-4 / Igor::sqr(dt))) {
+      if (!solver.solve(dp, div, 1e-3 / Igor::sqr(dt))) {
         Igor::Warn("t={:.8f}: Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    t,
                    solver.num_cycles(),
