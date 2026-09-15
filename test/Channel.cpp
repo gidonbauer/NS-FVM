@@ -239,7 +239,7 @@ auto main(int argc, char** argv) -> int {
         return std::abs(u_exp - u.x(i, j)) * grid.dy();
       },
       std::plus<>{});
-  if (L1 > 1.1 * Expected::L1(N)) {
+  if (L1 > 1.1 * Expected::L1(N) || std::isnan(L1)) {
     Igor::Error("u error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1(N),
                 L1);

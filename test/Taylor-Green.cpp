@@ -198,7 +198,7 @@ auto main(int argc, char** argv) -> int {
       solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
 #else
       if (!solver.solve(dp, div, 1e-6 / Igor::sqr(local_dt))) {
-        Igor::Warn("Multogrid solver did not converge after {} cycles: res = {:.8e}",
+        Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
                    solver.res());
       }
@@ -242,14 +242,19 @@ auto main(int argc, char** argv) -> int {
       },
       std::plus<>{});
 
+  Igor::Info("L1_u = {:.8e}", L1_u);
+  Igor::Info("L1_v = {:.8e}", L1_v);
+  Igor::Info("L1_u_exp = {:.8e}", Expected::L1u(N));
+  Igor::Info("L1_v_exp = {:.8e}", Expected::L1v(N));
+
   bool any_failed = false;
-  if (L1_u > 1.1 * Expected::L1u(N)) {
+  if (L1_u > 1.1 * Expected::L1u(N) || std::isnan(L1_u)) {
     Igor::Error("u error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1u(N),
                 L1_u);
     any_failed = true;
   }
-  if (L1_v > 1.1 * Expected::L1v(N)) {
+  if (L1_v > 1.1 * Expected::L1v(N) || std::isnan(L1_v)) {
     Igor::Error("v error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1v(N),
                 L1_v);

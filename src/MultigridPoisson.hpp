@@ -14,6 +14,7 @@ class MultigridSolver {
   static constexpr Index MAX_NUM_ITER_POST = 100;
   static constexpr Index MIN_NUM_ITER_PRE  = 1;
   static constexpr Index MAX_NUM_ITER_PRE  = 100;
+  static constexpr Float OMEGA             = 1.2;
 
   struct Level {
     Grid grid;
@@ -199,18 +200,19 @@ class MultigridSolver {
     const Index ny      = level.grid.ny();
 
     for (Index iter = 0; iter < num_iter; ++iter) {
-      apply_bconds(level.grid, m_bconds, sol, -1.0);
-
-      // Red-black Gauss-Seidel
+      // Red-black Gauss-Seidel with over-relaxation
       for (Index parity = 0; parity < 2; ++parity) {
+        apply_bconds(level.grid, m_bconds, sol, -1.0);
+
         level.grid.foreach_range(0, nx, 0, (ny + 1) / 2, [=](Index i, Index jj) {
           const Index j = 2 * jj + (i + parity) % 2;
           if (j >= ny) { return; }
 
-          sol(i, j) = ((sol(i - 1, j) + sol(i + 1, j)) * inv_dx2 +  //
-                       (sol(i, j - 1) + sol(i, j + 1)) * inv_dy2 -  //
-                       rhs(i, j)) *
-                      idiag;
+          sol(i, j) = (1.0 - OMEGA) * sol(i, j) +
+                      OMEGA *
+                          ((sol(i - 1, j) + sol(i + 1, j)) * inv_dx2 +
+                           (sol(i, j - 1) + sol(i, j + 1)) * inv_dy2 - rhs(i, j)) *
+                          idiag;
         });
       }
     }

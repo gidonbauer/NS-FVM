@@ -9,6 +9,7 @@ bin/
 output/
 build/
 notes/
+logs/
 
 scaling.ipynb
 stencil.ipynb

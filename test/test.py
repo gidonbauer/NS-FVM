@@ -27,7 +27,8 @@ class TestResult:
     cpu_time: float   # user + system seconds
     max_rss: int      # peak resident set, bytes
 
-Results = Dict[Tuple[str, Union[int, None]], TestResult]
+NameInput = Tuple[str, Union[int, None]]
+Results = Dict[NameInput, TestResult]
 
 
 @dataclass
@@ -225,6 +226,24 @@ def dump_failed(results: Results):
         print("-"*100)
 
 
+def write_logs(results: Results) -> bool:
+    log_path = "test/logs/" 
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
+
+    try:
+        for (name, inp), res in results.items():
+            with open(f"{log_path}/{run_name(name, inp)}.stdout", "w") as f:
+                print(res.stdout, file=f)
+            with open(f"{log_path}/{run_name(name, inp)}.stderr", "w") as f:
+                print(res.stderr, file=f)
+        return True
+    except IOError as err:
+        print(f"{err}", file=sys.stderr)
+        return False
+
+
+
 def parse_args(argv: Union[List[str], None] = None) -> Tuple[argparse.Namespace, List[TestCase]]:
     p = argparse.ArgumentParser(description="Build and run the test suite.")
     p.add_argument(
@@ -268,6 +287,8 @@ def main():
     results = run_tests(cases, jobs=args.jobs, verbose=args.verbose)
     render_results(results)
     dump_failed(results)
+    if not write_logs(results):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
