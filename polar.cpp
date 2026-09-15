@@ -13,18 +13,25 @@
 #include "MultigridPoisson.hpp"
 
 // = Setup =========================================================================================
-using Float               = double;
+using Float = double;
+struct Vec2 {
+  Float x, y;
+};
+constexpr auto operator+(Vec2 lhs, const Vec2& rhs) -> Vec2 {
+  lhs.x += rhs.x;
+  lhs.y += rhs.y;
+  return lhs;
+}
 
 constexpr Float theta_min = 0.0;
 constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float r_min     = 1.0;
 constexpr Float r_max     = 10.0;
 
-constexpr Float Uinf      = 1.0;
+constexpr Float Re        = 1e4;
 constexpr Float rho       = 1.0;
 constexpr Float mu        = 1e-3;
-
-constexpr Float Re        = Uinf * rho * r_min / mu;
+constexpr Float Uinf      = Re * mu / (rho * r_min);
 
 constexpr Float CFL       = 0.7;
 constexpr Float tend      = 200.0;
@@ -73,6 +80,43 @@ constexpr void custom_velocity_top_boundary(const Grid<Float, LAYOUT>& grid,
 }
 
 // =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr void calc_forces(const Grid<Float, LAYOUT>& grid,
+                           const FaceVector<Float, LAYOUT> u,
+                           const Scalar<Float, LAYOUT> p,
+                           Float& cD,
+                           Float& cL) {
+  const auto nu = mu / rho;
+
+  const Vec2 F  = grid.transform_reduce_range(
+      0,
+      grid.nx(),
+      0,
+      1,
+      Vec2{.x = 0.0, .y = 0.0},
+      FOREACH_FUNC {
+        const auto theta  = grid.xm(i);
+        const auto nx     = std::cos(theta);
+        const auto ny     = std::sin(theta);
+
+        const auto uth0   = (u.left(i, j + 0) + u.right(i, j + 0)) / 2.0;
+        const auto uth1   = (u.left(i, j + 1) + u.right(i, j + 1)) / 2.0;
+        const auto uth2   = (u.left(i, j + 2) + u.right(i, j + 2)) / 2.0;
+        const auto duthdr = (-uth2 + 4.0 * uth1 - 3.0 * uth0) / (2.0 * grid.dy());
+
+        return Vec2{
+            .x = (nu * duthdr * ny - p(i, j) * nx) * grid.dx(),
+            .y = -(nu * duthdr * nx + p(i, j) * ny) * grid.dx(),
+        };
+      },
+      std::plus<>{});
+  constexpr auto A    = r_min;
+  constexpr auto coef = 2.0 / (rho * A * Igor::sqr(Uinf));
+  cD                  = F.x * coef;
+  cL                  = F.y * coef;
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -90,27 +134,29 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Igor::Info("Re = {}", Re);
+  Igor::Info("Re   = {}", Re);
+  Igor::Info("Uinf = {}", Uinf);
 
   Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
 
-  auto u_old      = grid.alloc_face_vector();
-  auto u          = grid.alloc_face_vector();
-  auto ui         = grid.alloc_vector();
+  auto u_old = grid.alloc_face_vector();
+  auto u     = grid.alloc_face_vector();
+  auto ui    = grid.alloc_vector();
 
-  auto FUX        = grid.alloc_scalar();
-  auto FUY        = grid.alloc_vertex_scalar();
-  auto FVX        = grid.alloc_vertex_scalar();
-  auto FVY        = grid.alloc_scalar();
+  auto FUX   = grid.alloc_scalar();
+  auto FUY   = grid.alloc_vertex_scalar();
+  auto FVX   = grid.alloc_vertex_scalar();
+  auto FVY   = grid.alloc_scalar();
 
-  auto div        = grid.alloc_scalar();
-  auto p          = grid.alloc_scalar();
-  auto dp         = grid.alloc_scalar();
+  auto div   = grid.alloc_scalar();
+  auto p     = grid.alloc_scalar();
+  auto dp    = grid.alloc_scalar();
 
-  Float dt        = 0.0;
-  Float t         = 0.0;
+  Float dt   = 0.0;
+  Float t    = 0.0;
 
-  Float iter_time = 0.0;
+  Float cD   = 0.0;
+  Float cL   = 0.0;
 
   const BConds<Float> u_bconds{
       .left   = Periodic{},
@@ -134,9 +180,8 @@ auto main(int argc, char** argv) -> int {
   };
 
   MultigridSolver solver(grid, dp_bconds);
-  Index mg_cycles        = 0;
-  Index mg_num_iter_post = solver.num_iter_post();
-  Float mg_res           = 0.0;
+  Index mg_cycles = 0;
+  Float mg_res    = 0.0;
 
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC {
     const auto theta = grid.x(i);
@@ -169,19 +214,17 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&u_stats.max, "max(u_theta)");
   monitor.add_variable(&v_stats.max, "max(u_r)");
   monitor.add_variable(&div_max, "absmax(div)");
+  monitor.add_variable(&cD, "cD");
+  monitor.add_variable(&cL, "cL");
   monitor.add_variable(&mg_res, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
-  monitor.add_variable(&mg_num_iter_post, "niter_post(MG)");
-  monitor.add_variable(&iter_time, "time(iter) [s]");
   monitor.write();
 
   Float dt_write = 2.0;
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
-    const auto t_begin = std::chrono::high_resolution_clock::now();
-
-    dt                 = std::min({
+    dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
         dt_write,
         tend - t,
@@ -189,6 +232,7 @@ auto main(int argc, char** argv) -> int {
 
     copy(u, u_old);
 
+    mg_cycles = 0;
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
@@ -201,20 +245,22 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (!solver.solve(dp, div, 1e-4 / local_dt)) {
+      // Forces require accurate calculation of the pressure
+      if (!solver.solve(dp, div, std::min(1e-4 / local_dt, 1e-4 * Uinf))) {
         Igor::Warn("t={:.8f}: Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    t,
                    solver.num_cycles(),
                    solver.res());
       }
-      mg_cycles        = solver.num_cycles();
-      mg_num_iter_post = solver.num_iter_post();
-      mg_res           = solver.res();
+      mg_cycles += solver.num_cycles();
+      mg_res     = solver.res();
       apply_bconds(grid, dp_bconds, dp, t);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
     }
+
+    calc_forces(grid, u, p, cD, cL);
 
     interpolate(grid, u, ui);
     calc_div(grid, u, div);
@@ -231,8 +277,6 @@ auto main(int argc, char** argv) -> int {
       if (!writer.write(t)) { return 1; }
     }
 
-    iter_time =
-        std::chrono::duration<Float>(std::chrono::high_resolution_clock::now() - t_begin).count();
     monitor.write();
   }
 
