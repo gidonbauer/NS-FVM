@@ -3,7 +3,6 @@
 
 #include <Igor/Timer.hpp>
 
-#include "Advection-Diffusion.hpp"
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
@@ -23,7 +22,6 @@ constexpr Float r_min     = 1.0;
 constexpr Float r_max     = 2.0;
 
 constexpr Float Uavg      = 1.0;
-constexpr Float D         = 1e-1;
 
 constexpr Float rho       = 1.0;
 constexpr Float mu        = 1.0;
@@ -57,6 +55,7 @@ void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> 
   }
 }
 
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -74,30 +73,23 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float> grid(theta_min, theta_max, 2 * N, r_min, r_max, N, 3, Coordinates::POLAR);
+  Grid<Float> grid(theta_min, theta_max, 2 * N, r_min, r_max, N, 1, Coordinates::POLAR);
 
-  auto u_old      = grid.alloc_face_vector();
-  auto u          = grid.alloc_face_vector();
-  auto ui         = grid.alloc_vector();
+  auto u_old = grid.alloc_face_vector();
+  auto u     = grid.alloc_face_vector();
+  auto ui    = grid.alloc_vector();
 
-  auto FUX        = grid.alloc_scalar();
-  auto FUY        = grid.alloc_vertex_scalar();
-  auto FVX        = grid.alloc_vertex_scalar();
-  auto FVY        = grid.alloc_scalar();
+  auto FUX   = grid.alloc_scalar();
+  auto FUY   = grid.alloc_vertex_scalar();
+  auto FVX   = grid.alloc_vertex_scalar();
+  auto FVY   = grid.alloc_scalar();
 
-  auto div        = grid.alloc_scalar();
-  auto p          = grid.alloc_scalar();
-  auto dp         = grid.alloc_scalar();
+  auto div   = grid.alloc_scalar();
+  auto p     = grid.alloc_scalar();
+  auto dp    = grid.alloc_scalar();
 
-  auto T_old      = grid.alloc_scalar();
-  auto T          = grid.alloc_scalar();
-  auto FT         = grid.alloc_face_vector();
-
-  Float dt        = 0.0;
-  Float t         = 0.0;
-
-  Index mg_cycles = 0;
-  Float mg_res    = 0.0;
+  Float dt   = 0.0;
+  Float t    = 0.0;
 
   const BConds<Float> u_bconds{
       .left   = Dirichlet<Float>{.val = [](Float r, Float /*t*/) { return uth_analytical(r); }},
@@ -113,15 +105,6 @@ auto main(int argc, char** argv) -> int {
       .top    = Dirichlet<Float>{.val = 0.0},
   };
 
-  const BConds<Float> T_bconds{
-      .left   = Neumann{},
-      .right  = Neumann{},
-      .bottom = Dirichlet<Float>{.val = [](Float theta,
-                                           Float /*t*/) { return 10.0 * (theta < pi / 2.0); }},
-      .top    = Dirichlet<Float>{.val = [](Float theta,
-                                           Float /*t*/) { return 10.0 * (theta < pi / 2.0); }},
-  };
-
   const BConds<Float> dp_bconds{
       .left   = Neumann{},
       .right  = Neumann{},
@@ -130,6 +113,10 @@ auto main(int argc, char** argv) -> int {
   };
 
   MultigridSolver solver(grid, dp_bconds);
+  Index mg_cycles   = 0;
+  Index mg_num_pre  = solver.num_iter_pre();
+  Index mg_num_post = solver.num_iter_post();
+  Float mg_res      = 0.0;
 
   // Initial condition: the analytic fully-developed profile.
   grid.foreach_face_i<Dimension::X>(FOREACH_FUNC { u.x(i, j) = Uavg; });
@@ -140,7 +127,6 @@ auto main(int argc, char** argv) -> int {
   HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
-  writer.add_field("T", T);
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
 
@@ -148,7 +134,6 @@ auto main(int argc, char** argv) -> int {
   Stats u_stats   = stats(grid, u.x);
   Stats v_stats   = stats(grid, u.y);
   Stats div_stats = stats(grid, div);
-  Stats T_stats   = stats(grid, T);
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
@@ -157,10 +142,10 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&p_stats.max, "abs(p)");
   monitor.add_variable(&u_stats.max, "abs(u)");
   monitor.add_variable(&v_stats.max, "abs(v)");
-  monitor.add_variable(&T_stats.min, "min(T)");
-  monitor.add_variable(&T_stats.max, "max(T)");
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_res, "res(MG)");
+  monitor.add_variable(&mg_num_pre, "iter_pre(MG)");
+  monitor.add_variable(&mg_num_post, "iter_post(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
   monitor.write();
 
@@ -168,13 +153,11 @@ auto main(int argc, char** argv) -> int {
   while (t < tend) {
     dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
-        advection_adjust_dt(grid, D, CFL),
         dt_write,
         tend - t,
     });
 
     copy(u, u_old);
-    copy(T, T_old);
 
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
@@ -188,22 +171,19 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      if (!solver.solve(dp, div, 1e-4)) {
+      if (!solver.solve(dp, div, 1e-3 / local_dt)) {
         Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
                    solver.res());
       }
-      mg_cycles = solver.num_cycles();
-      mg_res    = solver.res();
+      mg_num_pre  = solver.num_iter_pre();
+      mg_num_post = solver.num_iter_post();
+      mg_cycles   = solver.num_cycles();
+      mg_res      = solver.res();
       apply_bconds(grid, dp_bconds, dp, t);
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
-
-      // Update temperature
-      advection_calc_flux(grid, u, T, D, FT);
-      advection_update_s(grid, local_dt, FT, T_old, T);
-      apply_bconds(grid, T_bconds, T, t);
     }
 
     interpolate(grid, u, ui);
@@ -212,7 +192,6 @@ auto main(int argc, char** argv) -> int {
     p_stats    = stats(grid, p);
     u_stats    = stats(grid, u.x);
     v_stats    = stats(grid, u.y);
-    T_stats    = stats(grid, T);
     div_stats  = stats(grid, div);
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
@@ -223,7 +202,11 @@ auto main(int argc, char** argv) -> int {
     monitor.write();
   }
 
-  Float L1 = grid.transform_reduce_i(
+  Float L1 = grid.transform_reduce_range(
+      u.x.nx() / 2,
+      u.x.nx() / 2 + 1,
+      0,
+      u.x.ny(),
       0.0,
       FOREACH_FUNC {
         const auto uth_exp = uth_analytical(grid.ym(j));

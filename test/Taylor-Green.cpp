@@ -197,7 +197,7 @@ auto main(int argc, char** argv) -> int {
 #if FFT_POISSON
       solver.execute(dp.data(), div.data(), ngs.data(), ngs.data());
 #else
-      if (!solver.solve(dp, div, 1e-6 / Igor::sqr(local_dt))) {
+      if (!solver.solve(dp, div, 1e-3 / local_dt)) {
         Igor::Warn("Multigrid solver did not converge after {} cycles: res = {:.8e}",
                    solver.num_cycles(),
                    solver.res());

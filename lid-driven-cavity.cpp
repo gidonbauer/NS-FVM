@@ -233,7 +233,7 @@ auto main(int argc, char** argv) -> int {
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (multigrid) {
-        mg_solver.solve(dp, div, 1e-3 / Igor::sqr(dt));
+        mg_solver.solve(dp, div, 1e-3 / local_dt);
         mg_cycles   = mg_solver.num_cycles();
         mg_cycles   = mg_solver.num_iter_post();
         mg_residual = mg_solver.res();

@@ -262,7 +262,7 @@ void run(Index N, Float abstol, Index reps, Index spinup, std::FILE* file) {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      const auto tol = abstol / Igor::sqr(local_dt);
+      const auto tol = abstol / local_dt;
       if (iter == 0 && sub_iter == 1) {
         copy(div, first.rhs);
         fill(first.sol0, 0.0);
@@ -541,7 +541,7 @@ void run(Index N, Float abstol, Index reps, Index spinup, std::FILE* file) {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      const auto tol = abstol / Igor::sqr(local_dt);
+      const auto tol = abstol / local_dt;
       if (iter == 0 && sub_iter == 1) {
         copy(div, first.rhs);
         fill(first.sol0, 0.0);

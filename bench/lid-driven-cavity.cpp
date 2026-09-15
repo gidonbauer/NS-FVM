@@ -233,7 +233,7 @@ auto main(int argc, char** argv) -> int {
       // 2) Pressure correction
       calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
-      solver.solve(dp, div, 1e-3 / Igor::sqr(dt));
+      solver.solve(dp, div, 1e-3 / local_dt);
       mg_cycles        = solver.num_cycles();
       mg_num_iter_pre  = solver.num_iter_pre();
       mg_num_iter_post = solver.num_iter_post();
