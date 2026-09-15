@@ -11,6 +11,7 @@
 #include "Mac.hpp"
 #include "Monitor.hpp"
 #include "MultigridPoisson.hpp"
+#include "Test-Common.hpp"
 
 // = Setup =========================================================================================
 using Float               = double;
@@ -30,6 +31,15 @@ constexpr Float tend      = 0.25;
 
 constexpr Float dt_write  = tend / 100.0;
 // = Setup =========================================================================================
+
+namespace Expected {
+
+constexpr std::array ns  = {16, 32, 64, 128};
+constexpr std::array L1s = {3.17841299e-03, 7.99785696e-04, 1.99373866e-04, 4.89090515e-05};
+static_assert(ns.size() == L1s.size());
+constexpr auto L1(Index n) { return interp_n2(ns, L1s, n); }
+
+}  // namespace Expected
 
 // =================================================================================================
 template <typename Float>
@@ -70,7 +80,7 @@ auto main(int argc, char** argv) -> int {
     return 1;
   }
 
-  const auto output_dir = get_output_directory();
+  const auto output_dir = "./test/output/Polar-Channel-" + std::to_string(N);
   if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float> grid(theta_min, theta_max, 2 * N, r_min, r_max, N, 1, Coordinates::POLAR);
@@ -213,7 +223,15 @@ auto main(int argc, char** argv) -> int {
         return std::abs(uth_exp - u.x(i, j)) * grid.dy();
       },
       std::plus<>{});
+
   Igor::Info("L1({}) = {:.8e}", N, L1);
+  Igor::Info("L1_exp({}) = {:.8e}", N, Expected::L1(N));
+  if (L1 > 1.1 * Expected::L1(N)) {
+    Igor::Error("u_theta error does not match expected value: expected {:.8e} but got {:.8e}",
+                Expected::L1(N),
+                L1);
+    return 1;
+  }
 
   Igor::Info("Ok.");
 }

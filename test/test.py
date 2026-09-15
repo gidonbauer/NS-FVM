@@ -40,12 +40,13 @@ class TestCase:
 ALL_TESTS = [
     TestCase("Taylor-Green-MG",     [8, 16, 64],                False),
     TestCase("Taylor-Green-FFT",    [8, 16, 64],                False),
-    TestCase("Multigrid",           [32, 64, 128, 512, 1024],   False),
-    TestCase("Polar-Couette",       [8, 16, 32],                False),
     TestCase("Channel-MG",          [16, 32, 64],               False),
     TestCase("Channel-FFT",         [16, 32, 64],               False),
+    TestCase("Polar-Couette",       [8, 16, 32],                False),
+    TestCase("Polar-Channel",       [8, 16, 32, 64],            False),
     TestCase("Advection-Cartesian", [16, 32, 64, 128],          False),
     TestCase("Advection-Polar",     [16, 32, 64, 128],          False),
+    TestCase("Multigrid",           [32, 64, 128, 512, 1024],   False),
     TestCase("Iterator",            None,                       True),
 ]
 
@@ -216,32 +217,40 @@ def render_results(results: Results, file: TextIO = sys.stdout) -> None:
     print(f" {border}", file=file)
 
 
-def dump_failed(results: Results):
-    for (name, inp), res in results.items():
-        if res.ret == 0:
-            continue
-        print("-"*100)
-        print(f"{run_name(name, inp)} stderr:")
-        print(res.stderr)
-        print("-"*100)
+LOG_PATH = "test/logs/"
+def log_paths(name: str, inp: Union[str, None]) -> Tuple[str, str]:
+    rname = run_name(name, inp)
+    stdout_path = f"{LOG_PATH}/{rname}.stdout".replace("//", "/")
+    stderr_path = f"{LOG_PATH}/{rname}.stderr".replace("//", "/")
+    return stdout_path, stderr_path
 
 
 def write_logs(results: Results) -> bool:
-    log_path = "test/logs/" 
-    if not os.path.exists(log_path):
-        os.makedirs(log_path)
+    if not os.path.exists(LOG_PATH):
+        os.makedirs(LOG_PATH)
 
     try:
         for (name, inp), res in results.items():
-            with open(f"{log_path}/{run_name(name, inp)}.stdout", "w") as f:
+            stdout_path, stderr_path = log_paths(name, inp)
+            with open(stdout_path, "w") as f:
                 print(res.stdout, file=f)
-            with open(f"{log_path}/{run_name(name, inp)}.stderr", "w") as f:
+            with open(stderr_path, "w") as f:
                 print(res.stderr, file=f)
         return True
     except IOError as err:
         print(f"{err}", file=sys.stderr)
         return False
 
+
+
+def dump_failed(results: Results):
+    for (name, inp), res in results.items():
+        if res.ret == 0:
+            continue
+        stdout_path, stderr_path = log_paths(name, inp)
+        print(f" {run_name(name, inp)} failed:")
+        print(f"   stdout: {stdout_path}")
+        print(f"   stderr: {stderr_path}")
 
 
 def parse_args(argv: Union[List[str], None] = None) -> Tuple[argparse.Namespace, List[TestCase]]:
@@ -286,9 +295,9 @@ def main():
         sys.exit(1)
     results = run_tests(cases, jobs=args.jobs, verbose=args.verbose)
     render_results(results)
-    dump_failed(results)
     if not write_logs(results):
         sys.exit(1)
+    dump_failed(results)
 
 
 if __name__ == "__main__":
