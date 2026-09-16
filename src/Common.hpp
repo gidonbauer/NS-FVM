@@ -28,28 +28,34 @@ struct Stats {
 template <typename Float, Layout LAYOUT>
 constexpr auto stats(const Grid<Float, LAYOUT>& grid, const Scalar<Float, LAYOUT> f)
     -> Stats<Float> {
-  Float min    = std::numeric_limits<Float>::max();
-  Float max    = -std::numeric_limits<Float>::max();
-  Float sum    = 0.0;
-  Float sum2   = 0.0;
-  Float volume = 0.0;
-  grid.foreach_i([=, &min, &max, &sum, &sum2, &volume](Index i, Index j) {
-    volume += grid.dv(i, j);
-    sum    += grid.dv(i, j) * f(i, j);
-    sum2   += grid.dv(i, j) * Igor::sqr(f(i, j));
-    max     = std::max(max, f(i, j));
-    min     = std::min(min, f(i, j));
-  });
+  Stats s = grid.transform_reduce_i(
+      Stats<Float>{
+          .min    = std::numeric_limits<Float>::max(),
+          .max    = -std::numeric_limits<Float>::max(),
+          .sum    = 0.0,
+          .stddev = 0.0,
+          .volume = 0.0,
+      },
+      FOREACH_FUNC->Stats<Float> {
+        return Stats<Float>{
+            .min    = f(i, j),
+            .max    = f(i, j),
+            .sum    = grid.dv(i, j) * f(i, j),
+            .stddev = grid.dv(i, j) * Igor::sqr(f(i, j)),
+            .volume = grid.dv(i, j),
+        };
+      },
+      [](Stats<Float> lhs, const Stats<Float>& rhs) -> Stats<Float> {
+        lhs.min     = std::min(lhs.min, rhs.min);
+        lhs.max     = std::max(lhs.max, rhs.max);
+        lhs.sum    += rhs.sum;
+        lhs.stddev += rhs.stddev;
+        lhs.volume += rhs.volume;
+        return lhs;
+      });
 
-  Stats s{
-      .min    = min,
-      .max    = max,
-      .sum    = sum,
-      .stddev = 0.0,
-      .volume = volume,
-  };
-  if (volume > 0.0) { sum2 -= sum * sum / volume; }
-  if (sum2 > 0.0) { s.stddev = std::sqrt(sum2 / volume); }
+  if (s.volume > 0.0) { s.stddev -= s.sum * s.sum / s.volume; }
+  if (s.stddev > 0.0) { s.stddev = std::sqrt(s.stddev / s.volume); }
   return s;
 }
 
@@ -57,27 +63,33 @@ template <typename Float, Layout LAYOUT>
 constexpr auto stats(const Grid<Float, LAYOUT>& grid,
                      const Scalar<Float, LAYOUT> f,
                      const Scalar<Float, LAYOUT> metric) -> Stats<Float> {
-  Float min    = std::numeric_limits<Float>::max();
-  Float max    = -std::numeric_limits<Float>::max();
-  Float sum    = 0.0;
-  Float sum2   = 0.0;
-  Float volume = 0.0;
-  grid.foreach_i([=, &min, &max, &sum, &sum2, &volume](Index i, Index j) {
-    volume += metric(i, j) * grid.dv(i, j);
-    sum    += metric(i, j) * grid.dv(i, j) * f(i, j);
-    sum2   += metric(i, j) * grid.dv(i, j) * Igor::sqr(f(i, j));
-    max     = std::max(max, f(i, j));
-    min     = std::min(min, f(i, j));
-  });
+  Stats s = grid.transform_reduce_i(
+      Stats<Float>{
+          .min    = std::numeric_limits<Float>::max(),
+          .max    = -std::numeric_limits<Float>::max(),
+          .sum    = 0.0,
+          .stddev = 0.0,
+          .volume = 0.0,
+      },
+      FOREACH_FUNC->Stats<Float> {
+        return Stats<Float>{
+            .min    = f(i, j),
+            .max    = f(i, j),
+            .sum    = metric(i, j) * grid.dv(i, j) * f(i, j),
+            .stddev = metric(i, j) * grid.dv(i, j) * Igor::sqr(f(i, j)),
+            .volume = metric(i, j) * grid.dv(i, j),
+        };
+      },
+      [](Stats<Float> lhs, const Stats<Float>& rhs) -> Stats<Float> {
+        lhs.min     = std::min(lhs.min, rhs.min);
+        lhs.max     = std::max(lhs.max, rhs.max);
+        lhs.sum    += rhs.sum;
+        lhs.stddev += rhs.stddev;
+        lhs.volume += rhs.volume;
+        return lhs;
+      });
 
-  Stats s{
-      .min    = min,
-      .max    = max,
-      .sum    = sum,
-      .stddev = 0.0,
-      .volume = volume,
-  };
-  if (volume > 0.0) { sum2 -= sum * sum / volume; }
-  if (sum2 > 0.0) { s.stddev = std::sqrt(sum2 / volume); }
+  if (s.volume > 0.0) { s.stddev -= s.sum * s.sum / s.volume; }
+  if (s.stddev > 0.0) { s.stddev = std::sqrt(s.stddev / s.volume); }
   return s;
 }

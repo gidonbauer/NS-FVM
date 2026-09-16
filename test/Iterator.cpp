@@ -2,16 +2,22 @@
 #include <numbers>
 
 #include <Igor/Math.hpp>
+#include <Igor/Timer.hpp>
 
 #include "BoundaryConditions.hpp"
+#include "Common.hpp"
 #include "Grid.hpp"
 
 using Float        = double;
 constexpr Float pi = std::numbers::pi_v<Float>;
 
+constexpr auto approx_eq(Float lhs, Float rhs, Float abstol) -> bool {
+  return std::abs(lhs - rhs) <= abstol;
+}
+
 // =================================================================================================
 template <Exec EXEC>
-auto minmax_reduce() -> bool {
+auto test_minmax_reduce() -> bool {
   const Index N = 1 << 14;
   Grid<Float> grid(0.0, 1.0, N, 0.0, 1.0, N, 1);
   auto s = grid.alloc_scalar();
@@ -83,7 +89,7 @@ auto minmax_reduce() -> bool {
 }
 
 // =================================================================================================
-auto residual() -> bool {
+auto test_residual() -> bool {
   const Index N = 1 << 14;
   Grid<Float> grid(0.0, 1.0, N, 0.0, 1.0, N, 1);
   auto sol            = grid.alloc_scalar();
@@ -116,8 +122,8 @@ auto residual() -> bool {
       },
       [](Float lhs, Float rhs) { return std::max(lhs, rhs); });
 
-  if (std::abs(max_res - 1.0) > 1e-12) {
-    Igor::Error("Expected max_res to be 1.0 but is {}.", max_res);
+  if (!approx_eq(max_res, 1.0, 1e-12)) {
+    Igor::Error("Expected max_res to be 1.0 but is {:.12e}.", max_res);
     return false;
   }
 
@@ -126,7 +132,7 @@ auto residual() -> bool {
 
 // =================================================================================================
 template <Exec EXEC>
-auto sum() -> bool {
+auto test_sum() -> bool {
   const Index N = 1 << 14;
   Grid<Float> grid(0.0, 1.0, N, 0.0, 1.0, N, 1);
   auto s = grid.alloc_scalar();
@@ -145,31 +151,93 @@ auto sum() -> bool {
 }
 
 // =================================================================================================
+auto test_stats() -> bool {
+  constexpr Index N     = 1 << 14;
+  constexpr Float x_min = -1.0;
+  constexpr Float x_max = 1.0;
+  constexpr Float y_min = -1.0;
+  constexpr Float y_max = 1.0;
+  Grid<Float> grid(x_min, x_max, N, y_min, y_max, N, 1);
+  auto s = grid.alloc_scalar();
+
+  fill(s, 1.0);
+  s(0, 0)                   = 0.0;
+  s(s.nx() - 1, s.ny() - 1) = 2.0;
+
+  const auto s_stats        = stats(grid, s);
+
+  bool any_failed           = false;
+  if (const auto exp_vol = (x_max - x_min) * (y_max - y_min);
+      !approx_eq(s_stats.volume, exp_vol, 1e-12)) {
+    Igor::Error("Calculated volume {:.12e} does not match expected volume {:.12e}",
+                s_stats.volume,
+                exp_vol);
+    any_failed = true;
+  }
+  if (const auto exp_min = 0.0; !approx_eq(s_stats.min, exp_min, 1e-12)) {
+    Igor::Error(
+        "Calculated minimum {:.12e} does not match expected minimum {:.12e}", s_stats.min, exp_min);
+    any_failed = true;
+  }
+  if (const auto exp_max = 2.0; !approx_eq(s_stats.max, exp_max, 1e-12)) {
+    Igor::Error(
+        "Calculated maximum {:.12e} does not match expected maximum {:.12e}", s_stats.max, exp_max);
+    any_failed = true;
+  }
+  if (const auto exp_sum = (x_max - x_min) * (y_max - y_min);
+      !approx_eq(s_stats.sum, exp_sum, 1e-12)) {
+    Igor::Error("Calculated sum {:.12e} does not match expected sum {:.12e}", s_stats.sum, exp_sum);
+    any_failed = true;
+  }
+  if (const auto exp_stddev = std::sqrt(2.0 / (grid.nx() * grid.ny()));
+      !approx_eq(s_stats.stddev, exp_stddev, 1e-12)) {
+    Igor::Error(
+        "Calculated standard deviation {:.12e} does not match expected standard deviation {:.12e}",
+        s_stats.stddev,
+        exp_stddev);
+    any_failed = true;
+  }
+
+  return !any_failed;
+}
+
+// =================================================================================================
 auto main() -> int {
   bool any_failed = false;
 
-  if (!minmax_reduce<Exec::SERIAL>()) {
-    Igor::Error("minmax_reduce(serial) failed.");
+  IGOR_TIME_SCOPE("MinMax serial")
+  if (!test_minmax_reduce<Exec::SERIAL>()) {
+    Igor::Error("test_minmax_reduce(serial) failed.");
     any_failed = true;
   }
 
-  if (!minmax_reduce<Exec::PARALLEL>()) {
-    Igor::Error("minmax_reduce(parallel) failed.");
+  IGOR_TIME_SCOPE("MinMax parallel")
+  if (!test_minmax_reduce<Exec::PARALLEL>()) {
+    Igor::Error("test_minmax_reduce(parallel) failed.");
     any_failed = true;
   }
 
-  if (!residual()) {
-    Igor::Error("residual failed.");
+  IGOR_TIME_SCOPE("Residual")
+  if (!test_residual()) {
+    Igor::Error("test_residual failed.");
     any_failed = true;
   }
 
-  if (!sum<Exec::SERIAL>()) {
-    Igor::Error("sum(serial) failed.");
+  IGOR_TIME_SCOPE("Sum serial")
+  if (!test_sum<Exec::SERIAL>()) {
+    Igor::Error("test_sum(serial) failed.");
     any_failed = true;
   }
 
-  if (!sum<Exec::PARALLEL>()) {
-    Igor::Error("sum(parallel) failed.");
+  IGOR_TIME_SCOPE("Sum parallel")
+  if (!test_sum<Exec::PARALLEL>()) {
+    Igor::Error("test_sum(parallel) failed.");
+    any_failed = true;
+  }
+
+  IGOR_TIME_SCOPE("Stats")
+  if (!test_stats()) {
+    Igor::Error("test_stats failed.");
     any_failed = true;
   }
 
