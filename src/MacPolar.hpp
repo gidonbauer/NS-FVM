@@ -111,3 +111,54 @@ constexpr void correct_velocity(const Grid<Float, LAYOUT>& grid,
 }
 
 }  // namespace Polar
+
+namespace ALEPolar {
+
+using Polar::calc_div;
+using Polar::correct_velocity;
+using Polar::update_u;
+
+// =================================================================================================
+// We assume that the ALE mesh movement is only in the axis directions, meaning only in r- or theta-
+// direction.
+// Additionally, we assmue that the grid velocity is the same everywhere. This means that the
+// Jacobian matrix is the identity matrix and its determinant is one. The flux then almost identical
+// to the non-ALE case, the only difference are that the radius `r` changes, this is done in the
+// `Grid` class, and the addition of the grid veclocity `w`. The fluxes `FUY` and `FVX` are then no
+// longer the same.
+template <typename Float, Layout LAYOUT>
+constexpr void calc_mom_flux(const Grid<Float, LAYOUT>& grid,
+                             const FaceVector<Float, LAYOUT> u,
+                             const Scalar<Float, LAYOUT> p,
+                             Float rho,
+                             Float mu,
+                             Vec2<Float> w,
+                             Scalar<Float, LAYOUT> FUX,
+                             VertexScalar<Float, LAYOUT> FUY,
+                             VertexScalar<Float, LAYOUT> FVX,
+                             Scalar<Float, LAYOUT> FVY) {
+  const auto nu = mu / rho;
+  grid.foreach_a(FOREACH_FUNC {
+    const auto uth     = (u.right(i, j) + u.left(i, j)) / 2.0;
+    const auto ur      = (u.top(i, j) + u.bottom(i, j)) / 2.0;
+    const auto duthdth = (u.right(i, j) - u.left(i, j)) / grid.dx();
+    const auto durdr   = (u.top(i, j) - u.bottom(i, j)) / grid.dy();
+    const auto r       = grid.ym(j);
+
+    FUX(i, j) = -Igor::sqr(uth) - p(i, j) / rho + 2.0 * nu * (duthdth + ur) / r + uth * w.theta();
+    FVY(i, j) = -Igor::sqr(ur) - p(i, j) / rho + 2.0 * nu * durdr + ur * w.r();
+  });
+
+  grid.foreach_vertex_i(FOREACH_FUNC {
+    const auto uth    = (u.x(i, j) + u.x(i, j - 1)) / 2.0;
+    const auto ur     = (u.y(i, j) + u.y(i - 1, j)) / 2.0;
+    const auto duthdr = (u.x(i, j) - u.x(i, j - 1)) / grid.dy();
+    const auto durdth = (u.y(i, j) - u.y(i - 1, j)) / grid.dx();
+    const auto r      = grid.y(j);
+
+    FUY(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + uth * w.theta();
+    FVX(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + ur * w.r();
+  });
+}
+
+}  // namespace ALEPolar

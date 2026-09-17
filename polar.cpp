@@ -13,15 +13,7 @@
 #include "MultigridPoisson.hpp"
 
 // = Setup =========================================================================================
-using Float = double;
-struct Vec2 {
-  Float x, y;
-};
-constexpr auto operator+(Vec2 lhs, const Vec2& rhs) -> Vec2 {
-  lhs.x += rhs.x;
-  lhs.y += rhs.y;
-  return lhs;
-}
+using Float               = double;
 
 constexpr Float theta_min = 0.0;
 constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
@@ -86,14 +78,14 @@ constexpr void calc_forces(const Grid<Float, LAYOUT>& grid,
                            const Scalar<Float, LAYOUT> p,
                            Float& cD,
                            Float& cL) {
-  const auto nu = mu / rho;
+  const auto nu       = mu / rho;
 
-  const Vec2 F  = grid.transform_reduce_range(
+  const Vec2<Float> F = grid.transform_reduce_range(
       0,
       grid.nx(),
       0,
       1,
-      Vec2{.x = 0.0, .y = 0.0},
+      Vec2<Float>{.x = 0.0, .y = 0.0},
       FOREACH_FUNC {
         const auto theta  = grid.xm(i);
         const auto nx     = std::cos(theta);
@@ -104,7 +96,7 @@ constexpr void calc_forces(const Grid<Float, LAYOUT>& grid,
         const auto uth2   = (u.left(i, j + 2) + u.right(i, j + 2)) / 2.0;
         const auto duthdr = (-uth2 + 4.0 * uth1 - 3.0 * uth0) / (2.0 * grid.dy());
 
-        return Vec2{
+        return Vec2<Float>{
             .x = (nu * duthdr * ny - p(i, j) * nx) * grid.dx(),
             .y = -(nu * duthdr * nx + p(i, j) * ny) * grid.dx(),
         };

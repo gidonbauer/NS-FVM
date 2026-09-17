@@ -176,11 +176,14 @@ struct Dirichlet {
 
 // =================================================================================================
 struct Neumann {
+  bool clipped = false;
 
   // = LEFT ========================================================================================
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_left_offset(const Grid<Float, LAYOUT>& grid,
-                                          Scalar<Float, LAYOUT> s) noexcept {
+                                          Scalar<Float, LAYOUT> s,
+                                          bool clipped = false) noexcept {
+    if (clipped) { Igor::Todo("apply_left_offset: Clipped Neumann not implemeted yet."); }
     grid.foreach_range(
         0, 1, 0, s.ny(), FOREACH_FUNC {
           for (i = -s.nghost(); i < 0; ++i) {
@@ -191,14 +194,17 @@ struct Neumann {
 
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_left_align(const Grid<Float, LAYOUT>& grid,
-                                         Scalar<Float, LAYOUT> s) noexcept {
-    return apply_left_offset(grid, s);  // The same, maybe not in the future
+                                         Scalar<Float, LAYOUT> s,
+                                         bool clipped = false) noexcept {
+    return apply_left_offset(grid, s, clipped);  // The same, maybe not in the future
   }
 
   // = RIGHT =======================================================================================
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_right_offset(const Grid<Float, LAYOUT>& grid,
-                                           Scalar<Float, LAYOUT> s) noexcept {
+                                           Scalar<Float, LAYOUT> s,
+                                           bool clipped = false) noexcept {
+    if (clipped) { Igor::Todo("apply_right_offset: Clipped Neumann not implemeted yet."); }
     grid.foreach_range(
         0, 1, 0, s.ny(), FOREACH_FUNC {
           for (i = s.nx(); i < s.nx() + s.nghost(); ++i) {
@@ -209,14 +215,17 @@ struct Neumann {
 
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_right_align(const Grid<Float, LAYOUT>& grid,
-                                          Scalar<Float, LAYOUT> s) noexcept {
-    return apply_right_offset(grid, s);  // The same, maybe not in the future
+                                          Scalar<Float, LAYOUT> s,
+                                          bool clipped = false) noexcept {
+    return apply_right_offset(grid, s, clipped);  // The same, maybe not in the future
   }
 
   // = BOTTOM ======================================================================================
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_bottom_offset(const Grid<Float, LAYOUT>& grid,
-                                            Scalar<Float, LAYOUT> s) noexcept {
+                                            Scalar<Float, LAYOUT> s,
+                                            bool clipped = false) noexcept {
+    if (clipped) { Igor::Todo("apply_bottom_offset: Clipped Neumann not implemeted yet."); }
     grid.foreach_range(
         -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = -s.nghost(); j < 0; ++j) {
@@ -227,26 +236,30 @@ struct Neumann {
 
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_bottom_align(const Grid<Float, LAYOUT>& grid,
-                                           Scalar<Float, LAYOUT> s) noexcept {
-    return apply_bottom_offset(grid, s);
+                                           Scalar<Float, LAYOUT> s,
+                                           bool clipped = false) noexcept {
+    return apply_bottom_offset(grid, s, clipped);
   }
 
   // = TOP =========================================================================================
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_top_offset(const Grid<Float, LAYOUT>& grid,
-                                         Scalar<Float, LAYOUT> s) noexcept {
+                                         Scalar<Float, LAYOUT> s,
+                                         bool clipped = false) noexcept {
     grid.foreach_range(
         -s.nghost(), s.nx() + s.nghost(), 0, 1, FOREACH_FUNC {
           for (j = s.ny(); j < s.ny() + s.nghost(); ++j) {
-            s(i, j) = s(i, 2 * s.ny() - j - 1);
+            const auto fill_value = s(i, 2 * s.ny() - j - 1);
+            s(i, j)               = clipped && fill_value < 0.0 ? 0.0 : fill_value;
           }
         });
   }
 
   template <typename Float, Layout LAYOUT>
   static constexpr void apply_top_align(const Grid<Float, LAYOUT>& grid,
-                                        Scalar<Float, LAYOUT> s) noexcept {
-    return apply_top_offset(grid, s);
+                                        Scalar<Float, LAYOUT> s,
+                                        bool clipped = false) noexcept {
+    return apply_top_offset(grid, s, clipped);
   }
 };
 
@@ -369,7 +382,7 @@ constexpr void apply_bconds(const Grid<Float, LAYOUT>& grid,
     if (std::holds_alternative<Dirichlet<Float>>(bconds.side)) {                                   \
       Dirichlet<Float>::apply_##side##_offset(grid, s, true, t, std::get<0>(bconds.side).val);     \
     } else if (std::holds_alternative<Neumann>(bconds.side)) {                                     \
-      Neumann::apply_##side##_offset(grid, s);                                                     \
+      Neumann::apply_##side##_offset(grid, s, std::get<1>(bconds.side).clipped);                   \
     } else if (std::holds_alternative<Periodic>(bconds.side)) {                                    \
       Periodic::apply_##side##_offset(grid, s);                                                    \
     } else {                                                                                       \
@@ -397,7 +410,7 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
     if (std::holds_alternative<Dirichlet<Float>>(u_bconds.side)) {                                 \
       Dirichlet<Float>::apply_##side##_align(grid, u.x, true, t, std::get<0>(u_bconds.side).val);  \
     } else if (std::holds_alternative<Neumann>(u_bconds.side)) {                                   \
-      Neumann::apply_##side##_align(grid, u.x);                                                    \
+      Neumann::apply_##side##_align(grid, u.x, std::get<1>(u_bconds.side).clipped);                \
     } else if (std::holds_alternative<Periodic>(u_bconds.side)) {                                  \
       Periodic::apply_##side##_align(grid, u.x);                                                   \
     } else {                                                                                       \
@@ -411,7 +424,7 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
       Dirichlet<Float>::apply_##side##_offset(                                                     \
           grid, u.y, false, t, std::get<0>(v_bconds.side).val);                                    \
     } else if (std::holds_alternative<Neumann>(v_bconds.side)) {                                   \
-      Neumann::apply_##side##_offset(grid, u.y);                                                   \
+      Neumann::apply_##side##_offset(grid, u.y, std::get<1>(v_bconds.side).clipped);               \
     } else if (std::holds_alternative<Periodic>(v_bconds.side)) {                                  \
       Periodic::apply_##side##_offset(grid, u.y);                                                  \
     } else {                                                                                       \
@@ -425,7 +438,7 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
       Dirichlet<Float>::apply_##side##_offset(                                                     \
           grid, u.x, false, t, std::get<0>(u_bconds.side).val);                                    \
     } else if (std::holds_alternative<Neumann>(u_bconds.side)) {                                   \
-      Neumann::apply_##side##_offset(grid, u.x);                                                   \
+      Neumann::apply_##side##_offset(grid, u.x, std::get<1>(u_bconds.side).clipped);               \
     } else if (std::holds_alternative<Periodic>(u_bconds.side)) {                                  \
       Periodic::apply_##side##_offset(grid, u.x);                                                  \
     } else {                                                                                       \
@@ -438,7 +451,7 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
     if (std::holds_alternative<Dirichlet<Float>>(v_bconds.side)) {                                 \
       Dirichlet<Float>::apply_##side##_align(grid, u.y, true, t, std::get<0>(v_bconds.side).val);  \
     } else if (std::holds_alternative<Neumann>(v_bconds.side)) {                                   \
-      Neumann::apply_##side##_align(grid, u.y);                                                    \
+      Neumann::apply_##side##_align(grid, u.y, std::get<1>(v_bconds.side).clipped);                \
     } else if (std::holds_alternative<Periodic>(v_bconds.side)) {                                  \
       Periodic::apply_##side##_align(grid, u.y);                                                   \
     } else {                                                                                       \

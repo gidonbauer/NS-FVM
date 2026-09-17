@@ -54,6 +54,25 @@ enum class Dimension { X, Y };
 enum class Coordinates { CARTESIAN, POLAR };
 enum class Exec { PARALLEL, SERIAL };
 
+// =================================================================================================
+template <typename Float>
+struct Vec2 {
+  Float x, y;
+
+  [[nodiscard]] constexpr auto theta() noexcept -> Float& { return x; }
+  [[nodiscard]] constexpr auto theta() const noexcept -> Float { return x; }
+  [[nodiscard]] constexpr auto r() noexcept -> Float& { return y; }
+  [[nodiscard]] constexpr auto r() const noexcept -> Float { return y; }
+};
+
+template <typename Float>
+constexpr auto operator+(Vec2<Float> lhs, const Vec2<Float>& rhs) -> Vec2<Float> {
+  lhs.x += rhs.x;
+  lhs.y += rhs.y;
+  return lhs;
+}
+
+// =================================================================================================
 template <typename Float, Layout LAYOUT>
 requires(std::is_trivially_constructible_v<Float> && std::is_trivially_destructible_v<Float>)
 class Scalar;
@@ -106,6 +125,10 @@ class Grid {
     return {data, nx, ny, nghost};
   }
 
+  [[nodiscard]] constexpr auto calc_delta(Float min, Float max, Index n) -> Float {
+    return (max - min) / n;
+  }
+
  public:
   constexpr Grid(Float x_min,
                  Float x_max,
@@ -117,11 +140,11 @@ class Grid {
                  Coordinates coords = Coordinates::CARTESIAN) noexcept
       : m_x_min(x_min),
         m_x_max(x_max),
-        m_dx((x_max - x_min) / nx),
+        m_dx(calc_delta(x_min, x_max, nx)),
         m_nx(nx),
         m_y_min(y_min),
         m_y_max(y_max),
-        m_dy((y_max - y_min) / ny),
+        m_dy(calc_delta(y_min, y_max, ny)),
         m_ny(ny),
         m_nghost(nghost),
         m_coords(coords) {}
@@ -156,7 +179,14 @@ class Grid {
   [[nodiscard]] constexpr auto nghost() const noexcept -> Index { return m_nghost; }
   [[nodiscard]] constexpr auto coords() const noexcept -> Coordinates { return m_coords; }
 
-  // TODO: Maybe pass x and y as function argument to FOREACH_FUNC
+  // Grid movement by a constant velocity in x- and y-direction
+  constexpr void move_grid_by_velocity(const Vec2<Float>& w, Float dt) noexcept {
+    m_x_min += w.x * dt;
+    m_x_max += w.x * dt;
+    m_y_min += w.y * dt;
+    m_y_max += w.y * dt;
+  }
+
   [[nodiscard]] constexpr auto x(Index i) const noexcept -> Float { return m_x_min + i * m_dx; }
   [[nodiscard]] constexpr auto y(Index j) const noexcept -> Float { return m_y_min + j * m_dy; }
   [[nodiscard]] constexpr auto xm(Index i) const noexcept -> Float {
@@ -165,6 +195,11 @@ class Grid {
   [[nodiscard]] constexpr auto ym(Index j) const noexcept -> Float {
     return m_y_min + (j + 0.5) * m_dy;
   }
+
+  [[nodiscard]] constexpr auto theta(Index i) const noexcept -> Float { return x(i); }
+  [[nodiscard]] constexpr auto r(Index j) const noexcept -> Float { return y(j); }
+  [[nodiscard]] constexpr auto thetam(Index i) const noexcept -> Float { return xm(i); }
+  [[nodiscard]] constexpr auto rm(Index j) const noexcept -> Float { return ym(j); }
 
   [[nodiscard]] constexpr auto alloc_scalar() const noexcept -> Scalar {
     return alloc(m_nx, m_ny, m_nghost);

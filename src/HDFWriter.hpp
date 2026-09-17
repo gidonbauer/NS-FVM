@@ -49,11 +49,11 @@ class HDFWriter {
   Float m_dy;
   Index m_ny;
 
+  Coordinates m_coords;
+
   int write_counter = 0;
   std::array<char, 7> group_name_buffer{};
   std::ostream::pos_type next_write_pos = 0;
-
-  Coordinates m_coords;
 
   std::vector<std::string> m_scalar_names;
   std::vector<Scalar<Float, LAYOUT>> m_scalar_values{};
@@ -107,6 +107,52 @@ class HDFWriter {
             row_x[j]         = r * std::cos(theta);
             row_y[j]         = r * std::sin(theta);
         }
+      }
+
+      dataset_x.write(row_x.data(), pred_type(), mem_space, file_space);
+      dataset_y.write(row_y.data(), pred_type(), mem_space, file_space);
+    }
+  }
+
+  // ===============================================================================================
+  constexpr void write_polar_grid_unmaterialized(const H5::Group& group,
+                                                 const VertexScalar<Float, LAYOUT> theta,
+                                                 const VertexScalar<Float, LAYOUT> r) {
+    static_assert(LAYOUT == Layout::C, "Only Layout::C is supported.");
+    const auto nxp = static_cast<hsize_t>(m_nx) + 1;
+    const auto nyp = static_cast<hsize_t>(m_ny) + 1;
+    IGOR_ASSERT(static_cast<Index>(nxp) == theta.nx() && static_cast<Index>(nyp) == theta.ny(),
+                "Incorrect dimensions of theta: expected ({}, {}) but got ({}, {})",
+                nxp,
+                nyp,
+                theta.nx(),
+                theta.ny());
+    IGOR_ASSERT(static_cast<Index>(nxp) == r.nx() && static_cast<Index>(nyp) == r.ny(),
+                "Incorrect dimensions of r: expected ({}, {}) but got ({}, {})",
+                nxp,
+                nyp,
+                r.nx(),
+                r.ny());
+
+    const std::array<hsize_t, 2> file_size{nxp, nyp};
+    H5::DataSpace file_space(2, file_size.data());
+    H5::DataSet dataset_x = group.createDataSet("x", pred_type(), file_space);
+    H5::DataSet dataset_y = group.createDataSet("y", pred_type(), file_space);
+
+    H5::DataSpace mem_space(1, &nyp);
+    const std::array<hsize_t, 2> mem_size{1, nyp};
+
+    std::vector<Float> row_x(nyp);
+    std::vector<Float> row_y(nyp);
+    for (hsize_t i = 0; i < nxp; ++i) {
+      const std::array<hsize_t, 2> offset{i, 0};
+      file_space.selectHyperslab(H5S_SELECT_SET, mem_size.data(), offset.data());
+
+      for (hsize_t j = 0; j < nyp; ++j) {
+        row_x[j] = r(static_cast<Index>(i), static_cast<Index>(j)) *
+                   std::cos(theta(static_cast<Index>(i), static_cast<Index>(j)));
+        row_y[j] = r(static_cast<Index>(i), static_cast<Index>(j)) *
+                   std::sin(theta(static_cast<Index>(i), static_cast<Index>(j)));
       }
 
       dataset_x.write(row_x.data(), pred_type(), mem_space, file_space);
@@ -225,11 +271,13 @@ class HDFWriter {
     if (x == nullptr && y == nullptr) {
       write_grid_unmaterialized(grid_group);
     } else if (x != nullptr && y != nullptr) {
-      if (m_coords == Coordinates::POLAR) {
-        Igor::Todo("Writing polar coordinates with ALE is not supported yet.");
+      switch (m_coords) {
+        case Coordinates::POLAR: write_polar_grid_unmaterialized(grid_group, *x, *y); break;
+        case Coordinates::CARTESIAN:
+          write_scalar(grid_group, "x", x->scalar());
+          write_scalar(grid_group, "y", y->scalar());
+          break;
       }
-      write_scalar(grid_group, "x", x->scalar());
-      write_scalar(grid_group, "y", y->scalar());
     } else {
       Igor::Panic("x and y must either both be nullptr or both not.");
     }
@@ -465,5 +513,17 @@ class HDFWriter {
                 y.nx(),
                 y.ny());
     return write(&x, &y, t);
+  }
+
+  // ===============================================================================================
+  // TODO: This is a bit of an ugly hack, maybe we can do something more elegant
+  constexpr void update_grid(const Grid<Float, LAYOUT>& grid) noexcept {
+    m_x_min  = grid.x_min();
+    m_dx     = grid.dx();
+    m_nx     = grid.nx();
+    m_y_min  = grid.y_min();
+    m_dy     = grid.dy();
+    m_ny     = grid.ny();
+    m_coords = grid.coords();
   }
 };
