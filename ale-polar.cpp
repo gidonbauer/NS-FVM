@@ -2,6 +2,7 @@
 #include <numbers>
 
 #include <Igor/Math.hpp>
+#include <Igor/Timer.hpp>
 
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
@@ -131,6 +132,7 @@ auto main(int argc, char** argv) -> int {
   };
   MultigridSolver solver(grid, dp_bconds);
 
+  IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
     dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
@@ -144,6 +146,9 @@ auto main(int argc, char** argv) -> int {
     mg_cycles = 0;
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? 0.5 * dt : dt;
+
+      grid.move_grid_by_velocity(w, 0.5 * dt);
+      solver.move_grid_by_velocity(w, 0.5 * dt);
 
       // 1) Prediction
       ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
@@ -165,8 +170,6 @@ auto main(int argc, char** argv) -> int {
 
       // 3) Projection
       ALEPolar::correct_velocity(grid, dp, rho, dt, u, p);
-
-      grid.move_grid_by_velocity(w, 0.5 * dt);
     }
     ALEPolar::calc_div(grid, u, div);
     interpolate(grid, u, ui);
@@ -184,4 +187,6 @@ auto main(int argc, char** argv) -> int {
       if (!writer.write(t)) { return 1; }
     }
   }
+
+  Igor::Info("Ok.");
 }

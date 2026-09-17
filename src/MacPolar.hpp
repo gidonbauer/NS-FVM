@@ -156,8 +156,8 @@ constexpr void calc_mom_flux(const Grid<Float, LAYOUT>& grid,
     const auto durdth = (u.y(i, j) - u.y(i - 1, j)) / grid.dx();
     const auto r      = grid.y(j);
 
-    FUY(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + uth * w.theta();
-    FVX(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + ur * w.r();
+    FUY(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + ur * w.r();
+    FVX(i, j)         = -uth * ur + nu * (duthdr + durdth / r - uth / r) + uth * w.theta();
   });
 }
 

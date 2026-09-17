@@ -462,6 +462,19 @@ class MultigridSolver {
   }
 
   // -----------------------------------------------------------------------------------------------
+  constexpr void move_grid_by_velocity(const Vec2<Float>& w, Float dt) noexcept {
+    for (size_t i = 0; i < m_levels.size(); ++i) {
+      auto& level = m_levels[i];
+      level.grid.move_grid_by_velocity(w, dt);
+      precompute_tridiag(level, m_bconds);
+      if (i > 0) {
+        const auto& fine = m_levels[i - 1];
+        precompute_restriction_weights(fine, level);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
   [[nodiscard]] constexpr auto num_levels() const noexcept -> Index {
     return static_cast<Index>(m_levels.size());
   }
