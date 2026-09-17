@@ -17,19 +17,16 @@
 #include "Monitor.hpp"
 #include "WENO5.hpp"
 
-using Float = double;
-struct Vec2 {
-  Float x;
-  Float y;
-};
+using Float              = double;
 
 constexpr Float pi       = std::numbers::pi_v<Float>;
 
-constexpr Float x_min    = -0.5;
-constexpr Float x_max    = 0.5;
-constexpr Float y_min    = -0.5;
-constexpr Float y_max    = 0.5;
+constexpr Float x_min    = -1.0;
+constexpr Float x_max    = 1.0;
+constexpr Float y_min    = -1.0;
+constexpr Float y_max    = 1.0;
 
+constexpr Float D        = 1e-3;
 constexpr Float CFL      = 0.5;
 constexpr Float tend     = 1.0;
 constexpr Float dt_write = tend / 100.0;
@@ -38,6 +35,13 @@ constexpr Float dt_max   = 1e-2;
 // =================================================================================================
 // = ALE Advection =================================================================================
 // =================================================================================================
+template <typename Float, Layout LAYOUT>
+constexpr auto advection_adjust_dt(const Grid<Float, LAYOUT>& grid, Float D_, Float CFL_) -> Float {
+  IGOR_ASSERT(D_ >= 0.0, "Diffusion coefficient cannot be negative but is {}", D_);
+  const auto h = std::min(grid.dx(), grid.dy());
+  return D_ > 0.0 ? CFL_ * 0.25 * Igor::sqr(h) / D : std::numeric_limits<Float>::max();
+}
+
 template <typename Float, Layout LAYOUT>
 constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
@@ -59,10 +63,23 @@ constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
 
     const auto dxdeta = (x(i, j + 1) - x(i, j)) / grid.dy();
     const auto dydeta = (y(i, j + 1) - y(i, j)) / grid.dy();
+    const auto dxdxi =
+        ((x(i + 1, j) + x(i + 1, j + 1)) - (x(i - 1, j) + x(i - 1, j + 1))) / (4.0 * grid.dx());
+    const auto dydxi =
+        ((y(i + 1, j) + y(i + 1, j + 1)) - (y(i - 1, j) + y(i - 1, j + 1))) / (4.0 * grid.dx());
+    const auto Jf    = dxdxi * dydeta - dxdeta * dydxi;
 
-    const auto si     = dydeta * (ux - wx) - dxdeta * (uy - wy) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
+    const auto dsdxi = (s(i, j) - s(i - 1, j)) / grid.dx();
+    const auto dsdeta =
+        (s(i - 1, j + 1) + s(i, j + 1) - s(i - 1, j - 1) - s(i, j - 1)) / (4.0 * grid.dy());
 
-    F.x(i, j)         = dydeta * (-si * ux + si * wx) - dxdeta * (-si * uy + si * wy);
+    // Gradient w.r.t. the physical coordinates, not the computational ones
+    const auto dsdx = (dydeta * dsdxi - dydxi * dsdeta) / Jf;
+    const auto dsdy = (dxdxi * dsdeta - dxdeta * dsdxi) / Jf;
+
+    const auto si   = dydeta * (ux - wx) - dxdeta * (uy - wy) >= 0.0 ? sL.x(i, j) : sR.x(i, j);
+
+    F.x(i, j) = dydeta * (-si * ux + D * dsdx + si * wx) - dxdeta * (-si * uy + D * dsdy + si * wy);
   });
 
   grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
@@ -74,21 +91,34 @@ constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
 
     const auto dxdxi = (x(i + 1, j) - x(i, j)) / grid.dx();
     const auto dydxi = (y(i + 1, j) - y(i, j)) / grid.dx();
+    const auto dxdeta =
+        ((x(i, j + 1) + x(i + 1, j + 1)) - (x(i, j - 1) + x(i + 1, j - 1))) / (4.0 * grid.dy());
+    const auto dydeta =
+        ((y(i, j + 1) + y(i + 1, j + 1)) - (y(i, j - 1) + y(i + 1, j - 1))) / (4.0 * grid.dy());
+    const auto Jf = dxdxi * dydeta - dxdeta * dydxi;
 
-    const auto si    = -dydxi * (ux - wx) + dxdxi * (uy - wy) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
+    const auto dsdxi =
+        (s(i + 1, j - 1) + s(i + 1, j) - s(i - 1, j - 1) - s(i - 1, j)) / (4.0 * grid.dx());
+    const auto dsdeta = (s(i, j) - s(i, j - 1)) / grid.dy();
 
-    F.y(i, j)        = -dydxi * (-si * ux + si * wx) + dxdxi * (-si * uy + si * wy);
+    // Gradient w.r.t. the physical coordinates, not the computational ones
+    const auto dsdx = (dydeta * dsdxi - dydxi * dsdeta) / Jf;
+    const auto dsdy = (dxdxi * dsdeta - dxdeta * dsdxi) / Jf;
+
+    const auto si   = -dydxi * (ux - wx) + dxdxi * (uy - wy) >= 0.0 ? sL.y(i, j) : sR.y(i, j);
+
+    F.y(i, j) = -dydxi * (-si * ux + D * dsdx + si * wx) + dxdxi * (-si * uy + D * dsdy + si * wy);
   });
 }
 
 template <typename Float, Layout LAYOUT>
 constexpr void update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  const Scalar<Float, LAYOUT> J_old,
-                                  const Scalar<Float, LAYOUT> J,
-                                  Scalar<Float, LAYOUT> s) {
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> s_old,
+                        const Scalar<Float, LAYOUT> J_old,
+                        const Scalar<Float, LAYOUT> J,
+                        Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
     s(i, j) = (J_old(i, j) * s_old(i, j) + dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
                                                  (F.top(i, j) - F.bottom(i, j)) / grid.dy())) /
@@ -162,7 +192,7 @@ constexpr void interpolate_vertex(const Grid<Float, LAYOUT>& grid,
       FOREACH_FUNC { s(i, j) = (v(i, j) + v(i + 1, j) + v(i, j + 1) + v(i + 1, j + 1)) / 4.0; });
 }
 
-constexpr auto cartesian2polar(Vec2 p) -> Vec2 {
+constexpr auto cartesian2polar(Vec2<Float> p) -> Vec2<Float> {
   const auto r     = std::sqrt(Igor::sqr(p.x) + Igor::sqr(p.y));
   const auto theta = std::atan2(p.y, p.x);
   return {.x = theta, .y = r};
@@ -269,10 +299,23 @@ auto main(int argc, char** argv) -> int {
   apply_velocity_bconds(grid, bconds, bconds, u, t);
   interpolate(grid, u, ui);
 
+  [[maybe_unused]] auto roma_kernel = [](Float r) {
+    if (std::abs(r) <= 0.5) { return 1.0 / 3.0 * (1.0 + std::sqrt(-3.0 * Igor::sqr(r) + 1.0)); }
+    if (std::abs(r) <= 1.5) {
+      return 1.0 / 6.0 *
+             (5.0 - 3.0 * std::abs(r) - std::sqrt(-3.0 * Igor::sqr(1.0 - std::abs(r)) + 1.0));
+    }
+    return 0.0;
+  };
   grid.foreach_i(FOREACH_FUNC {
     const auto x = grid.xm(i);
     const auto y = grid.ym(j);
-    s(i, j)      = static_cast<Float>(Igor::sqr(x + 0.25) + Igor::sqr(y) < Igor::sqr(0.1));
+#ifdef SMOOTH_INIT_DATA
+    const auto r = std::sqrt(Igor::sqr(x + 0.25) + Igor::sqr(y)) * 8.0;
+    s(i, j)      = roma_kernel(r);
+#else
+    s(i, j) = static_cast<Float>(Igor::sqr(x + 0.25) + Igor::sqr(y) < Igor::sqr(0.1));
+#endif
   });
   apply_bconds(grid, bconds, s, 0.0);
 
@@ -339,6 +382,7 @@ auto main(int argc, char** argv) -> int {
     dt = std::min({
         adjust_dt(grid, u, 1.0, 0.0, CFL),
         adjust_dt(grid, w, 1.0, 0.0, CFL),
+        advection_adjust_dt(grid, D, CFL),
         dt_max,
         dt_write,
         tend - t,
