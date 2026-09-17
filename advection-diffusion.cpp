@@ -172,7 +172,7 @@ auto main(int argc, char** argv) -> int {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u);
       correct_outflow(grid, u);
@@ -187,8 +187,8 @@ auto main(int argc, char** argv) -> int {
       correct_velocity(grid, dp, rho, local_dt, u, p);
 
       // Update species
-      advection_calc_flux(grid, u, s, D, Fs);
-      advection_update_s(grid, local_dt, Fs, s_old, s);
+      calc_advection_flux(grid, u, s, D, Fs);
+      update_s(grid, local_dt, Fs, s_old, s);
       apply_dirichlet_bconds(grid, s, 0.0);
     }
 

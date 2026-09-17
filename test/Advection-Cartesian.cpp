@@ -123,8 +123,8 @@ auto main(int argc, char** argv) -> int {
 
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
-      advection_calc_flux(grid, u, s, D, FS);
-      advection_update_s(grid, local_dt, FS, s_old, s);
+      calc_advection_flux(grid, u, s, D, FS);
+      update_s(grid, local_dt, FS, s_old, s);
       apply_bconds(grid, bconds, s, t);
     }
 

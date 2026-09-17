@@ -20,19 +20,19 @@ constexpr void calc_div(const Grid<Float, LAYOUT>& grid,
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
-                         const FaceVector<Float, LAYOUT> u,
-                         const Scalar<Float, LAYOUT> p,
-                         Float rho,
-                         Float mu,
-                         Scalar<Float, LAYOUT> FUX,
-                         VertexScalar<Float, LAYOUT> FUY,
-                         VertexScalar<Float, LAYOUT> FVX,
-                         Scalar<Float, LAYOUT> FVY) {
+constexpr void calc_mom_flux(const Grid<Float, LAYOUT>& grid,
+                             const FaceVector<Float, LAYOUT> u,
+                             const Scalar<Float, LAYOUT> p,
+                             Float rho,
+                             Float mu,
+                             Scalar<Float, LAYOUT> FUX,
+                             VertexScalar<Float, LAYOUT> FUY,
+                             VertexScalar<Float, LAYOUT> FVX,
+                             Scalar<Float, LAYOUT> FVY) {
   switch (grid.coords()) {
     case Coordinates::CARTESIAN:
-      return Cartesian::calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
-    case Coordinates::POLAR: return Polar::calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      return Cartesian::calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+    case Coordinates::POLAR: return Polar::calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
   }
   Igor::Panic("Unreachable");
 }

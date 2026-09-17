@@ -157,7 +157,7 @@ auto main(int argc, char** argv) -> int {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u);
       correct_outflow(grid, u);

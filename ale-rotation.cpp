@@ -39,7 +39,7 @@ constexpr Float dt_max   = 1e-2;
 // = ALE Advection =================================================================================
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
+constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
                                    const FaceVector<Float, LAYOUT> w,
@@ -82,7 +82,7 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
                                   Float dt,
                                   const FaceVector<Float, LAYOUT> F,
                                   const Scalar<Float, LAYOUT> s_old,
@@ -357,8 +357,8 @@ auto main(int argc, char** argv) -> int {
       // Make sure that these values are never used
       fill_ghost(grid, J, std::numeric_limits<Float>::quiet_NaN());
 
-      advection_calc_flux(grid, u, s, w, geo_x, geo_y, Fs);
-      advection_update_s(grid, local_dt, Fs, s_old, J_old, J, s);
+      calc_advection_flux(grid, u, s, w, geo_x, geo_y, Fs);
+      update_s(grid, local_dt, Fs, s_old, J_old, J, s);
       apply_bconds(grid, bconds, s, 0.0);
 
       // #define SPIRAL

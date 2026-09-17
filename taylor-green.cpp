@@ -212,7 +212,7 @@ auto main(int argc, char** argv) -> int {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, bconds, bconds, u);
 
@@ -233,8 +233,8 @@ auto main(int argc, char** argv) -> int {
 
       // Update species
       calc_viscous_temperature_src(grid, u, mu, rho, cV, Tsrc);
-      advection_calc_flux(grid, u, T, kappa / (rho * cV), FT);
-      advection_update_s(grid, local_dt, FT, Tsrc, T_old, T);
+      calc_advection_flux(grid, u, T, kappa / (rho * cV), FT);
+      update_s(grid, local_dt, FT, Tsrc, T_old, T);
       apply_bconds(grid, bconds, T, t);
     }
 

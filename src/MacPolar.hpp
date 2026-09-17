@@ -29,15 +29,15 @@ constexpr void calc_div(const Grid<Float, LAYOUT>& grid,
 
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
-constexpr void calc_flux(const Grid<Float, LAYOUT>& grid,
-                         const FaceVector<Float, LAYOUT> u,
-                         const Scalar<Float, LAYOUT> p,
-                         Float rho,
-                         Float mu,
-                         Scalar<Float, LAYOUT> FUX,
-                         VertexScalar<Float, LAYOUT> FUY,
-                         VertexScalar<Float, LAYOUT> FVX,
-                         Scalar<Float, LAYOUT> FVY) {
+constexpr void calc_mom_flux(const Grid<Float, LAYOUT>& grid,
+                             const FaceVector<Float, LAYOUT> u,
+                             const Scalar<Float, LAYOUT> p,
+                             Float rho,
+                             Float mu,
+                             Scalar<Float, LAYOUT> FUX,
+                             VertexScalar<Float, LAYOUT> FUY,
+                             VertexScalar<Float, LAYOUT> FVX,
+                             Scalar<Float, LAYOUT> FVY) {
   const auto nu = mu / rho;
   grid.foreach_a(FOREACH_FUNC {
     const auto uth     = (u.right(i, j) + u.left(i, j)) / 2.0;

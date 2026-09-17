@@ -255,7 +255,7 @@ void run(Index N, Float abstol, Index reps, Index spinup, std::FILE* file) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
 
@@ -363,7 +363,7 @@ void run_fft(Index N, Index reps, Index spinup, std::FILE* file) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
 
@@ -533,7 +533,7 @@ void run(Index N, Float abstol, Index reps, Index spinup, std::FILE* file) {
       const auto local_dt = sub_iter == 0 ? dt / 2.0 : dt;
 
       // 1) Predictor
-      calc_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
+      calc_mom_flux(grid, u, p, rho, mu, FUX, FUY, FVX, FVY);
       update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
       apply_velocity_bconds(grid, u_bconds, v_bconds, u, t);
       custom_velocity_top_boundary(grid, u);

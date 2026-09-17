@@ -11,7 +11,7 @@
 namespace Cartesian {
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
+constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
                                    const FaceVector<Float, LAYOUT> sL,
@@ -36,11 +36,11 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
     s(i, j) = s_old(i, j) + dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
                                   (F.top(i, j) - F.bottom(i, j)) / grid.dy());
@@ -48,12 +48,12 @@ constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> src,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> src,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
     s(i, j) = s_old(i, j) + dt * ((F.right(i, j) - F.left(i, j)) / grid.dx() +
                                   (F.top(i, j) - F.bottom(i, j)) / grid.dy() + src(i, j));
@@ -71,7 +71,7 @@ constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
 namespace Polar {
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
+constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
                                    const FaceVector<Float, LAYOUT> sL,
@@ -93,12 +93,12 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> src,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> src,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
     const auto dFthdth = (F.right(i, j) - F.left(i, j)) / grid.dx();
     const auto dFrdr   = (F.top(i, j) - F.bottom(i, j)) / grid.dy();
@@ -109,11 +109,11 @@ constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   grid.foreach_i(FOREACH_FUNC {
     const auto dFthdth = (F.right(i, j) - F.left(i, j)) / grid.dx();
     const auto dFrdr   = (F.top(i, j) - F.bottom(i, j)) / grid.dy();
@@ -136,7 +136,7 @@ constexpr auto advection_adjust_dt(const Grid<Float, LAYOUT>& grid, Float D, Flo
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
+constexpr void calc_advection_flux(const Grid<Float, LAYOUT>& grid,
                                    const FaceVector<Float, LAYOUT> u,
                                    const Scalar<Float, LAYOUT> s,
                                    Float D,
@@ -146,35 +146,35 @@ constexpr void advection_calc_flux(const Grid<Float, LAYOUT>& grid,
   weno_reconstruction(grid, s, sL, sR);
 
   switch (grid.coords()) {
-    case Coordinates::CARTESIAN: return Cartesian::advection_calc_flux(grid, u, s, sL, sR, D, F);
-    case Coordinates::POLAR:     return Polar::advection_calc_flux(grid, u, s, sL, sR, D, F);
+    case Coordinates::CARTESIAN: return Cartesian::calc_advection_flux(grid, u, s, sL, sR, D, F);
+    case Coordinates::POLAR:     return Polar::calc_advection_flux(grid, u, s, sL, sR, D, F);
   }
   Igor::Panic("Unreachable");
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   switch (grid.coords()) {
-    case Coordinates::CARTESIAN: return Cartesian::advection_update_s(grid, dt, F, s_old, s);
-    case Coordinates::POLAR:     return Polar::advection_update_s(grid, dt, F, s_old, s);
+    case Coordinates::CARTESIAN: return Cartesian::update_s(grid, dt, F, s_old, s);
+    case Coordinates::POLAR:     return Polar::update_s(grid, dt, F, s_old, s);
   }
   Igor::Panic("Unreachable");
 }
 
 template <typename Float, Layout LAYOUT>
-constexpr void advection_update_s(const Grid<Float, LAYOUT>& grid,
-                                  Float dt,
-                                  const FaceVector<Float, LAYOUT> F,
-                                  const Scalar<Float, LAYOUT> src,
-                                  const Scalar<Float, LAYOUT> s_old,
-                                  Scalar<Float, LAYOUT> s) {
+constexpr void update_s(const Grid<Float, LAYOUT>& grid,
+                        Float dt,
+                        const FaceVector<Float, LAYOUT> F,
+                        const Scalar<Float, LAYOUT> src,
+                        const Scalar<Float, LAYOUT> s_old,
+                        Scalar<Float, LAYOUT> s) {
   switch (grid.coords()) {
-    case Coordinates::CARTESIAN: return Cartesian::advection_update_s(grid, dt, F, src, s_old, s);
-    case Coordinates::POLAR:     return Polar::advection_update_s(grid, dt, F, src, s_old, s);
+    case Coordinates::CARTESIAN: return Cartesian::update_s(grid, dt, F, src, s_old, s);
+    case Coordinates::POLAR:     return Polar::update_s(grid, dt, F, src, s_old, s);
   }
   Igor::Panic("Unreachable");
 }
