@@ -4,6 +4,8 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
+// #define MAC_POLAR_USE_J
+#include "Advection-Diffusion.hpp"
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
@@ -24,6 +26,7 @@ constexpr Float theta_max = 2.0 * pi;
 
 constexpr Float rho       = 1.0;
 constexpr Float mu        = 1e-3;
+constexpr Float D         = 1e-3;
 
 constexpr Float CFL       = 0.5;
 constexpr Float tend      = 1.0;
@@ -46,6 +49,38 @@ constexpr auto ale_adjust_dt(const Grid<Float, LAYOUT>& grid,
   return adv > 0.0 ? CFL_ / adv : no_limit;
 }
 
+template <typename Float, Layout LAYOUT>
+constexpr void ale_calc_J_flux(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> F) {
+  grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC { F.x(i, j) = w.x; });
+  grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC { F.y(i, j) = w.y; });
+}
+
+template <typename Float, Layout LAYOUT>
+constexpr void ale_update_J(const Grid<Float, LAYOUT>& grid,
+                            Float dt,
+                            const FaceVector<Float, LAYOUT> F,
+                            const Scalar<Float, LAYOUT> J_old,
+                            Scalar<Float, LAYOUT> J) {
+  switch (grid.coords()) {
+    case Coordinates::CARTESIAN:
+      grid.foreach_i(FOREACH_FUNC {
+        J(i, j) = J_old(i, j) + dt *  // J_old(i, j) *
+                                    ((F.right(i, j) - F.left(i, j)) / grid.dx() +
+                                     (F.top(i, j) - F.bottom(i, j)) / grid.dy());
+      });
+      return;
+    case Coordinates::POLAR:
+      grid.foreach_i(FOREACH_FUNC {
+        const auto dFthdth = (F.right(i, j) - F.left(i, j)) / grid.dx();
+        const auto dFrdr   = (F.top(i, j) - F.bottom(i, j)) / grid.dy();
+        const auto Fr      = (F.top(i, j) + F.bottom(i, j)) / 2.0;
+        const auto r       = grid.ym(j);
+        J(i, j)            = J_old(i, j) + dt *  // J_old(i, j) *
+                                               (dFrdr + dFthdth / r + Fr / r);
+      });
+      return;
+  }
+}
 // =================================================================================================
 template <typename Float, Layout LAYOUT>
 void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> u) {
@@ -80,7 +115,7 @@ auto main(int argc, char** argv) -> int {
   const auto output_dir = get_output_directory();
   if (!init_output_directory(output_dir)) { return 1; }
 
-  Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
+  Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 3, Coordinates::POLAR);
   auto u_old = grid.alloc_face_vector();
   auto u     = grid.alloc_face_vector();
   auto ui    = grid.alloc_vector();
@@ -94,8 +129,18 @@ auto main(int argc, char** argv) -> int {
   auto p     = grid.alloc_scalar();
   auto dp    = grid.alloc_scalar();
 
+  auto s_old = grid.alloc_scalar();
+  auto s     = grid.alloc_scalar();
+  auto Fs    = grid.alloc_face_vector();
+
+  auto J_old = grid.alloc_scalar();
+  auto J     = grid.alloc_scalar();
+  auto FJ    = grid.alloc_face_vector();
+
   Float t    = 0.0;
   Float dt   = 1e-1;
+
+  fill(J, 1.0);
 
   const BConds<Float> uth_bconds{
       .left   = Periodic{},
@@ -114,16 +159,38 @@ auto main(int argc, char** argv) -> int {
   apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
   interpolate(grid, u, ui);
 
+  const BConds<Float> dp_bconds{
+      .left   = Periodic(),
+      .right  = Periodic(),
+      .bottom = Neumann(),
+      .top    = Neumann(),
+  };
+  MultigridSolver solver(grid, dp_bconds);
+
+  const BConds<Float> s_bconds{
+      .left   = Periodic(),
+      .right  = Periodic(),
+      .bottom = Neumann(),
+      .top    = Neumann(),
+  };
+  grid.foreach_i(FOREACH_FUNC { s(i, j) = grid.r(j) < 2.0 ? 1.0 : 0.0; });
+  apply_bconds(grid, s_bconds, s, t);
+
+  // - Output ------------------------------------------------------------------
   HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
   writer.add_field("div", div);
+  writer.add_field("s", s);
+  writer.add_field("J", J);
   if (!writer.write(t)) { return 1; }
 
   Stats p_stats   = stats(grid, p);
   Stats u_stats   = stats(grid, u.x);
   Stats v_stats   = stats(grid, u.y);
   Stats div_stats = stats(grid, div);
+  Stats s_stats   = stats(grid, s);
+  Stats J_stats   = stats(grid, J);
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
   Float mg_res    = 0.0;
@@ -135,45 +202,55 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&p_stats.max, "max(p)");
   monitor.add_variable(&u_stats.max, "max(u_theta)");
   monitor.add_variable(&v_stats.max, "max(u_r)");
+  monitor.add_variable(&s_stats.min, "min(s)");
+  monitor.add_variable(&s_stats.max, "max(s)");
+  monitor.add_variable(&s_stats.sum, "sum(s)");
+  monitor.add_variable(&J_stats.min, "min(J)");
+  monitor.add_variable(&J_stats.max, "max(J)");
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&mg_res, "res(MG)");
   monitor.add_variable(&mg_cycles, "cycles(MG)");
   monitor.write();
-
-  const BConds<Float> dp_bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Neumann{},
-      .top    = Neumann{},
-  };
-  MultigridSolver solver(grid, dp_bconds);
+  // - Output ------------------------------------------------------------------
 
   IGOR_TIME_SCOPE("Solver")
   while (t < tend) {
     dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
+        advection_adjust_dt(grid, D, CFL),
         ale_adjust_dt(grid, w, CFL),
         dt_write,
         std::max(tend - t, 1e-6),
     });
 
     copy(u, u_old);
+    copy(s, s_old);
+    copy(J, J_old);
 
     mg_cycles = 0;
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? 0.5 * dt : dt;
 
-      // 1) Prediction
-      ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
-      ALEPolar::update_u(grid, local_dt, w, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
-      correct_outflow(grid, u);
+      // 1) Update J
+      ale_calc_J_flux(grid, FJ);
+      ale_update_J(grid, local_dt, FJ, J_old, J);
+      apply_bconds(grid, dp_bconds, J, t);
 
-      // 2) Update the physical position of the grid
+      // 2) Prediction
+      ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
+#ifndef MAC_POLAR_USE_J
+      ALEPolar::update_u(grid, local_dt, w, FUX, FUY, FVX, FVY, u_old, u);
+#else
+      ALEPolar::update_u(grid, local_dt, J_old, J, FUX, FUY, FVX, FVY, u_old, u);
+#endif
+      apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
+
+      // 3) Update the physical position of the grid
       grid.move_grid_by_velocity(w, 0.5 * dt);
       solver.move_grid_by_velocity(w, 0.5 * dt);
+      correct_outflow(grid, u);
 
-      // 3) Pressure calculation
+      // 4) Pressure calculation
       ALEPolar::calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (!solver.solve(dp, div, 1e-6 / local_dt)) {
@@ -186,8 +263,13 @@ auto main(int argc, char** argv) -> int {
       mg_cycles += solver.num_cycles();
       apply_bconds(grid, dp_bconds, dp, t);
 
-      // 4) Projection
+      // 5) Projection
       ALEPolar::correct_velocity(grid, dp, rho, local_dt, u, p);
+
+      // 6) Update scalar
+      ALEPolar::calc_advection_flux(grid, u, s, w, D, Fs);
+      ALEPolar::update_s(grid, local_dt, w, Fs, s_old, s);
+      apply_bconds(grid, s_bconds, s, t);
     }
     ALEPolar::calc_div(grid, u, div);
     interpolate(grid, u, ui);
@@ -196,6 +278,8 @@ auto main(int argc, char** argv) -> int {
     u_stats    = stats(grid, u.x);
     v_stats    = stats(grid, u.y);
     div_stats  = stats(grid, div);
+    s_stats    = stats(grid, s);
+    J_stats    = stats(grid, J);
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
     t         += dt;
