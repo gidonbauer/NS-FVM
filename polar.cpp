@@ -275,6 +275,7 @@ auto main(int argc, char** argv) -> int {
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
+      apply_velocity_bconds_only_periodic(grid, u_bconds, v_bconds, u);
 
       // 4) Update temperature
       calc_advection_flux(grid, u, T, D, FT);

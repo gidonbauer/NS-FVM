@@ -477,6 +477,57 @@ void apply_velocity_bconds(const Grid<Float, LAYOUT>& grid,
 
 // -------------------------------------------------------------------------------------------------
 template <typename Float, Layout LAYOUT>
+void apply_velocity_bconds_only_periodic(const Grid<Float, LAYOUT>& grid,
+                                         const BConds<Float>& u_bconds,
+                                         const BConds<Float>& v_bconds,
+                                         FaceVector<Float, LAYOUT> u,
+                                         Float /*t*/ = -1.0) {
+#define APPLY_U_X(side)                                                                            \
+  do {                                                                                             \
+    if (std::holds_alternative<Periodic>(u_bconds.side)) {                                         \
+      Periodic::apply_##side##_align(grid, u.x);                                                   \
+    }                                                                                              \
+  } while (false)
+
+#define APPLY_V_X(side)                                                                            \
+  do {                                                                                             \
+    if (std::holds_alternative<Periodic>(v_bconds.side)) {                                         \
+      Periodic::apply_##side##_offset(grid, u.y);                                                  \
+    }                                                                                              \
+  } while (false)
+
+#define APPLY_U_Y(side)                                                                            \
+  do {                                                                                             \
+    if (std::holds_alternative<Periodic>(u_bconds.side)) {                                         \
+      Periodic::apply_##side##_offset(grid, u.x);                                                  \
+    }                                                                                              \
+  } while (false)
+
+#define APPLY_V_Y(side)                                                                            \
+  do {                                                                                             \
+    if (std::holds_alternative<Periodic>(v_bconds.side)) {                                         \
+      Periodic::apply_##side##_align(grid, u.y);                                                   \
+    }                                                                                              \
+  } while (false)
+
+  APPLY_U_X(left);
+  APPLY_U_X(right);
+  APPLY_U_Y(bottom);
+  APPLY_U_Y(top);
+
+  APPLY_V_X(left);
+  APPLY_V_X(right);
+  APPLY_V_Y(bottom);
+  APPLY_V_Y(top);
+
+#undef APPLY_U_X
+#undef APPLY_U_Y
+#undef APPLY_V_X
+#undef APPLY_V_Y
+}
+
+// -------------------------------------------------------------------------------------------------
+template <typename Float, Layout LAYOUT>
 constexpr void apply_dirichlet_bconds(const Grid<Float, LAYOUT>& grid,
                                       Scalar<Float, LAYOUT> field,
                                       Float value) noexcept {

@@ -170,7 +170,8 @@ constexpr void update_s(const Grid<Float, LAYOUT>& grid,
     const auto dFrdr   = (F.top(i, j) - F.bottom(i, j)) / grid.dy();
     const auto Fr      = (F.top(i, j) + F.bottom(i, j)) / 2.0;
     const auto r       = grid.ym(j);
-    s(i, j)            = s_old(i, j) + dt * (dFrdr + dFthdth / r + Fr / r - s(i, j) * w.r() / r);
+    const auto r_old   = r - dt * w.r();
+    s(i, j)            = (r_old * s_old(i, j) + r * dt * (dFrdr + dFthdth / r + Fr / r)) / r;
   });
 }
 

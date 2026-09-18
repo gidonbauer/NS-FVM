@@ -4,7 +4,6 @@
 #include <Igor/Math.hpp>
 #include <Igor/Timer.hpp>
 
-// #define MAC_POLAR_USE_J
 #include "Advection-Diffusion.hpp"
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
@@ -26,7 +25,7 @@ constexpr Float theta_max = 2.0 * pi;
 
 constexpr Float rho       = 1.0;
 constexpr Float mu        = 1e-3;
-constexpr Float D         = 1e-3;
+constexpr Float D         = 1e-1;
 
 constexpr Float CFL       = 0.5;
 constexpr Float tend      = 1.0;
@@ -64,7 +63,7 @@ constexpr void ale_update_J(const Grid<Float, LAYOUT>& grid,
   switch (grid.coords()) {
     case Coordinates::CARTESIAN:
       grid.foreach_i(FOREACH_FUNC {
-        J(i, j) = J_old(i, j) + dt *  // J_old(i, j) *
+        J(i, j) = J_old(i, j) + dt * J_old(i, j) *
                                     ((F.right(i, j) - F.left(i, j)) / grid.dx() +
                                      (F.top(i, j) - F.bottom(i, j)) / grid.dy());
       });
@@ -75,8 +74,7 @@ constexpr void ale_update_J(const Grid<Float, LAYOUT>& grid,
         const auto dFrdr   = (F.top(i, j) - F.bottom(i, j)) / grid.dy();
         const auto Fr      = (F.top(i, j) + F.bottom(i, j)) / 2.0;
         const auto r       = grid.ym(j);
-        J(i, j)            = J_old(i, j) + dt *  // J_old(i, j) *
-                                               (dFrdr + dFthdth / r + Fr / r);
+        J(i, j)            = J_old(i, j) + dt * J_old(i, j) * (dFrdr + dFthdth / r + Fr / r);
       });
       return;
   }
@@ -116,31 +114,36 @@ auto main(int argc, char** argv) -> int {
   if (!init_output_directory(output_dir)) { return 1; }
 
   Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 3, Coordinates::POLAR);
-  auto u_old = grid.alloc_face_vector();
-  auto u     = grid.alloc_face_vector();
-  auto ui    = grid.alloc_vector();
+  auto u_old  = grid.alloc_face_vector();
+  auto u      = grid.alloc_face_vector();
+  auto ui     = grid.alloc_vector();
 
-  auto FUX   = grid.alloc_scalar();
-  auto FUY   = grid.alloc_vertex_scalar();
-  auto FVX   = grid.alloc_vertex_scalar();
-  auto FVY   = grid.alloc_scalar();
+  auto FUX    = grid.alloc_scalar();
+  auto FUY    = grid.alloc_vertex_scalar();
+  auto FVX    = grid.alloc_vertex_scalar();
+  auto FVY    = grid.alloc_scalar();
 
-  auto div   = grid.alloc_scalar();
-  auto p     = grid.alloc_scalar();
-  auto dp    = grid.alloc_scalar();
+  auto div    = grid.alloc_scalar();
+  auto p      = grid.alloc_scalar();
+  auto dp     = grid.alloc_scalar();
 
-  auto s_old = grid.alloc_scalar();
-  auto s     = grid.alloc_scalar();
-  auto Fs    = grid.alloc_face_vector();
+  auto s_old  = grid.alloc_scalar();
+  auto s      = grid.alloc_scalar();
+  auto Fs     = grid.alloc_face_vector();
 
-  auto J_old = grid.alloc_scalar();
-  auto J     = grid.alloc_scalar();
-  auto FJ    = grid.alloc_face_vector();
+  auto J_old  = grid.alloc_scalar();
+  auto J      = grid.alloc_scalar();
+  auto FJ     = grid.alloc_face_vector();
 
-  Float t    = 0.0;
-  Float dt   = 1e-1;
+  auto J_real = grid.alloc_scalar();
+  auto r0     = grid.alloc_scalar();
+
+  Float t     = 0.0;
+  Float dt    = 1e-1;
 
   fill(J, 1.0);
+  grid.foreach_i(FOREACH_FUNC { r0(i, j) = grid.r(j); });
+  grid.foreach_i(FOREACH_FUNC { J_real(i, j) = grid.r(j) / r0(i, j); });
 
   const BConds<Float> uth_bconds{
       .left   = Periodic{},
@@ -152,7 +155,7 @@ auto main(int argc, char** argv) -> int {
       .left   = Periodic{},
       .right  = Periodic{},
       .bottom = Dirichlet<Float>{.val = w.r()},
-      .top    = Neumann{.clipped = true},
+      .top    = Neumann{.clipped = false},
   };
   fill(u.x, 0.0);
   fill(u.y, 0.0);
@@ -183,18 +186,21 @@ auto main(int argc, char** argv) -> int {
   writer.add_field("div", div);
   writer.add_field("s", s);
   writer.add_field("J", J);
+  writer.add_field("J_real", J_real);
   if (!writer.write(t)) { return 1; }
 
-  Stats p_stats   = stats(grid, p);
-  Stats u_stats   = stats(grid, u.x);
-  Stats v_stats   = stats(grid, u.y);
-  Stats div_stats = stats(grid, div);
-  Stats s_stats   = stats(grid, s);
-  Stats J_stats   = stats(grid, J);
-  Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
+  Stats p_stats      = stats(grid, p);
+  Stats u_stats      = stats(grid, u.x);
+  Stats v_stats      = stats(grid, u.y);
+  Stats div_stats    = stats(grid, div);
+  Stats s_stats      = stats(grid, s);
+  Stats J_stats      = stats(grid, J);
+  Float div_max      = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
-  Float mg_res    = 0.0;
-  Index mg_cycles = 0;
+  const Float s0_sum = s_stats.sum;
+
+  Float mg_res       = 0.0;
+  Index mg_cycles    = 0;
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
@@ -238,11 +244,7 @@ auto main(int argc, char** argv) -> int {
 
       // 2) Prediction
       ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
-#ifndef MAC_POLAR_USE_J
       ALEPolar::update_u(grid, local_dt, w, FUX, FUY, FVX, FVY, u_old, u);
-#else
-      ALEPolar::update_u(grid, local_dt, J_old, J, FUX, FUY, FVX, FVY, u_old, u);
-#endif
       apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
 
       // 3) Update the physical position of the grid
@@ -265,6 +267,7 @@ auto main(int argc, char** argv) -> int {
 
       // 5) Projection
       ALEPolar::correct_velocity(grid, dp, rho, local_dt, u, p);
+      apply_velocity_bconds_only_periodic(grid, uth_bconds, ur_bconds, u);
 
       // 6) Update scalar
       ALEPolar::calc_advection_flux(grid, u, s, w, D, Fs);
@@ -273,6 +276,7 @@ auto main(int argc, char** argv) -> int {
     }
     ALEPolar::calc_div(grid, u, div);
     interpolate(grid, u, ui);
+    grid.foreach_i(FOREACH_FUNC { J_real(i, j) = grid.r(j) / r0(i, j); });
 
     p_stats    = stats(grid, p);
     u_stats    = stats(grid, u.x);
@@ -289,6 +293,10 @@ auto main(int argc, char** argv) -> int {
       if (!writer.write(t)) { return 1; }
     }
   }
+
+  Igor::Info("sum(s0) = {:.12e}", s0_sum);
+  Igor::Info("sum(s)  = {:.12e}", s_stats.sum);
+  Igor::Info("abs. conservation error = {:.12e}", std::abs(s_stats.sum - s0_sum));
 
   Igor::Info("Ok.");
 }

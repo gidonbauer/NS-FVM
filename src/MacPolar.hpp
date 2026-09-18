@@ -118,7 +118,6 @@ using Polar::calc_div;
 using Polar::correct_velocity;
 
 // =================================================================================================
-#ifndef MAC_POLAR_USE_J
 // Here we need to account for the increase of cell size, this is done through the additional term
 // $\vec{u} (\nabla \cdot \vec{w})$.
 template <typename Float, Layout LAYOUT>
@@ -153,47 +152,6 @@ constexpr void update_u(const Grid<Float, LAYOUT>& grid,
         u_old.y(i, j) + dt * (dTthrdth / r + dTrrdr + (Trr - Tthth) / r - u.y(i, j) * w.r() / r);
   });
 }
-#else
-// =================================================================================================
-// Here we need to account for the increase of cell size, this is done using `J`.
-template <typename Float, Layout LAYOUT>
-constexpr void update_u(const Grid<Float, LAYOUT>& grid,
-                        Float dt,
-                        const Scalar<Float, LAYOUT> J_old,
-                        const Scalar<Float, LAYOUT> J,
-                        const Scalar<Float, LAYOUT> FUX,
-                        const VertexScalar<Float, LAYOUT> FUY,
-                        const VertexScalar<Float, LAYOUT> FVX,
-                        const Scalar<Float, LAYOUT> FVY,
-                        const FaceVector<Float, LAYOUT> u_old,
-                        FaceVector<Float, LAYOUT> u) {
-  grid.template foreach_face_i<Dimension::X>(FOREACH_FUNC {
-    const auto dTththdth = (FUX(i, j) - FUX(i - 1, j)) / grid.dx();
-    const auto dTrthdr   = (FUY(i, j + 1) - FUY(i, j)) / grid.dy();
-    const auto Trth      = (FUY(i, j + 1) + FUY(i, j)) / 2.0;
-    const auto Tthr      = (FVX(i, j + 1) + FVX(i, j)) / 2.0;
-    const auto r         = grid.ym(j);
-
-    const auto Ji_old    = (J_old(i - 1, j) + J_old(i, j)) / 2.0;
-    const auto Ji        = (J(i - 1, j) + J(i, j)) / 2.0;
-
-    u.x(i, j) = (Ji_old * u_old.x(i, j) + dt * (dTththdth / r + dTrthdr + (Trth + Tthr) / r)) / Ji;
-  });
-
-  grid.template foreach_face_i<Dimension::Y>(FOREACH_FUNC {
-    const auto dTthrdth = (FVX(i + 1, j) - FVX(i, j)) / grid.dx();
-    const auto dTrrdr   = (FVY(i, j) - FVY(i, j - 1)) / grid.dy();
-    const auto Tthth    = (FUX(i, j) + FUX(i, j - 1)) / 2.0;
-    const auto Trr      = (FVY(i, j) + FVY(i, j - 1)) / 2.0;
-    const auto r        = grid.y(j);
-
-    const auto Ji_old   = (J_old(i, j - 1) + J_old(i, j)) / 2.0;
-    const auto Ji       = (J(i, j - 1) + J(i, j)) / 2.0;
-
-    u.y(i, j) = (Ji_old * u_old.y(i, j) + dt * (dTthrdth / r + dTrrdr + (Trr - Tthth) / r)) / Ji;
-  });
-}
-#endif
 
 // =================================================================================================
 // We assume that the ALE mesh movement is only in the axis directions, meaning only in r- or theta-
