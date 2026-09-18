@@ -27,9 +27,6 @@ ifeq (${PARALLEL}, 1)
 else
 	POISFFT_LIB += -lpoisfft
 endif
-
-CXX_INC += ${POISFFT_INC}
-CXX_LIB += ${POISFFT_LIB}
 # = PoisFFT ======================================
 
 # = Stdpar =======================================

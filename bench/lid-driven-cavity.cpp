@@ -1,7 +1,5 @@
 #include <charconv>
 
-#include <poisfft.h>
-
 #include <Igor/Defer.hpp>
 #include <Igor/Logging.hpp>
 #include <Igor/Math.hpp>
