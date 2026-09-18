@@ -3,6 +3,7 @@
 
 #include <Igor/Timer.hpp>
 
+#include "Advection-Diffusion.hpp"
 #include "BoundaryConditions.hpp"
 #include "Common.hpp"
 #include "Grid.hpp"
@@ -20,10 +21,12 @@ constexpr Float theta_max = 2.0 * std::numbers::pi_v<Float>;
 constexpr Float r_min     = 1.0;
 constexpr Float r_max     = 10.0;
 
-constexpr Float Re        = 1e4;
-constexpr Float rho       = 1.0;
-constexpr Float mu        = 1e-3;
-constexpr Float Uinf      = Re * mu / (rho * r_min);
+constexpr Float Re        = 1e3;                      // [-]
+constexpr Float Pe        = 1e2;                      // [-]
+constexpr Float rho       = 1.0;                      // [kg/m^3]
+constexpr Float mu        = 1e-3;                     // [Pa*s]
+constexpr Float Uinf      = Re * mu / (rho * r_min);  // [m/s]
+constexpr Float D         = (Uinf * r_min) / Pe;      // [m^2/s]
 
 constexpr Float CFL       = 0.7;
 constexpr Float tend      = 200.0;
@@ -127,7 +130,9 @@ auto main(int argc, char** argv) -> int {
   if (!init_output_directory(output_dir)) { return 1; }
 
   Igor::Info("Re   = {}", Re);
+  Igor::Info("Pe   = {}", Pe);
   Igor::Info("Uinf = {}", Uinf);
+  Igor::Info("D    = {}", D);
 
   Grid<Float> grid(theta_min, theta_max, N, r_min, r_max, N, 1, Coordinates::POLAR);
 
@@ -143,6 +148,10 @@ auto main(int argc, char** argv) -> int {
   auto div   = grid.alloc_scalar();
   auto p     = grid.alloc_scalar();
   auto dp    = grid.alloc_scalar();
+
+  auto T_old = grid.alloc_scalar();
+  auto T     = grid.alloc_scalar();
+  auto FT    = grid.alloc_face_vector();
 
   Float dt   = 0.0;
   Float t    = 0.0;
@@ -164,13 +173,20 @@ auto main(int argc, char** argv) -> int {
       .top =
           Dirichlet<Float>{.val = [](Float theta, Float /*t*/) { return Uinf * std::cos(theta); }},
   };
-  const BConds<Float> dp_bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Neumann{},
-      .top    = Neumann{},
+
+  const BConds<Float> T_bconds{
+      .left   = Periodic(),
+      .right  = Periodic(),
+      .bottom = Dirichlet<Float>{.val = 293.15},
+      .top    = Neumann(),
   };
 
+  const BConds<Float> dp_bconds{
+      .left   = Periodic(),
+      .right  = Periodic(),
+      .bottom = Neumann(),
+      .top    = Neumann(),
+  };
   MultigridSolver solver(grid, dp_bconds);
   Index mg_cycles = 0;
   Float mg_res    = 0.0;
@@ -187,15 +203,20 @@ auto main(int argc, char** argv) -> int {
   custom_velocity_top_boundary(grid, u);
   interpolate(grid, u, ui);
 
+  fill(T, 273.15);
+  apply_bconds(grid, T_bconds, T, t);
+
   HDFWriter writer(output_dir, grid);
   writer.add_field("u", ui);
   writer.add_field("p", p);
+  writer.add_field("T", T);
   writer.add_field("div", div);
   if (!writer.write(t)) { return 1; }
 
   Stats p_stats   = stats(grid, p);
   Stats u_stats   = stats(grid, u.x);
   Stats v_stats   = stats(grid, u.y);
+  Stats T_stats   = stats(grid, T);
   Stats div_stats = stats(grid, div);
   Float div_max   = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
@@ -205,6 +226,8 @@ auto main(int argc, char** argv) -> int {
   monitor.add_variable(&p_stats.max, "max(p)");
   monitor.add_variable(&u_stats.max, "max(u_theta)");
   monitor.add_variable(&v_stats.max, "max(u_r)");
+  monitor.add_variable(&T_stats.min, "min(T)");
+  monitor.add_variable(&T_stats.max, "max(T)");
   monitor.add_variable(&div_max, "absmax(div)");
   monitor.add_variable(&cD, "cD");
   monitor.add_variable(&cL, "cL");
@@ -218,11 +241,13 @@ auto main(int argc, char** argv) -> int {
   while (t < tend) {
     dt = std::min({
         adjust_dt(grid, u, rho, mu, CFL),
+        advection_adjust_dt(grid, D, CFL),
         dt_write,
         tend - t,
     });
 
     copy(u, u_old);
+    copy(T, T_old);
 
     mg_cycles = 0;
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
@@ -250,6 +275,11 @@ auto main(int argc, char** argv) -> int {
 
       // 3) Project
       correct_velocity(grid, dp, rho, local_dt, u, p);
+
+      // 4) Update temperature
+      calc_advection_flux(grid, u, T, D, FT);
+      update_s(grid, local_dt, FT, T_old, T);
+      apply_bconds(grid, T_bconds, T, t);
     }
 
     calc_forces(grid, u, p, cD, cL);
@@ -260,6 +290,7 @@ auto main(int argc, char** argv) -> int {
     p_stats    = stats(grid, p);
     u_stats    = stats(grid, u.x);
     v_stats    = stats(grid, u.y);
+    T_stats    = stats(grid, T);
     div_stats  = stats(grid, div);
     div_max    = std::max(std::abs(div_stats.min), std::abs(div_stats.max));
 
