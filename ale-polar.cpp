@@ -47,6 +47,22 @@ constexpr auto ale_adjust_dt(const Grid<Float, LAYOUT>& grid,
 }
 
 // =================================================================================================
+template <typename Float, Layout LAYOUT>
+void correct_outflow(const Grid<Float, LAYOUT>& grid, FaceVector<Float, LAYOUT> u) {
+  // Rescale the outflow so that it matches the inflow exactly (global continuity).
+  Float Qin  = 0.0;
+  Float Qout = 0.0;
+  for (Index i = 0; i < u.y.nx(); ++i) {
+    Qin  += u.y(i, 0) * grid.y_min() * grid.dx();
+    Qout += u.y(i, u.y.ny() - 1) * grid.y_max() * grid.dx();
+  }
+  const Float corr = (Qin - Qout) / (static_cast<Float>(u.y.nx()) * grid.y_max() * grid.dx());
+  for (Index i = 0; i < u.y.nx(); ++i) {
+    u.y(i, u.y.ny() - 1) += corr;
+  }
+}
+
+// =================================================================================================
 auto main(int argc, char** argv) -> int {
   const auto usage_str = Igor::detail::format("Usage: {} <grid size>", argv[0]);
   if (argc < 2) {
@@ -147,15 +163,17 @@ auto main(int argc, char** argv) -> int {
     for (Index sub_iter = 0; sub_iter < 2; ++sub_iter) {
       const auto local_dt = sub_iter == 0 ? 0.5 * dt : dt;
 
+      // 1) Prediction
+      ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
+      ALEPolar::update_u(grid, local_dt, w, FUX, FUY, FVX, FVY, u_old, u);
+      apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
+      correct_outflow(grid, u);
+
+      // 2) Update the physical position of the grid
       grid.move_grid_by_velocity(w, 0.5 * dt);
       solver.move_grid_by_velocity(w, 0.5 * dt);
 
-      // 1) Prediction
-      ALEPolar::calc_mom_flux(grid, u, p, rho, mu, w, FUX, FUY, FVX, FVY);
-      ALEPolar::update_u(grid, local_dt, FUX, FUY, FVX, FVY, u_old, u);
-      apply_velocity_bconds(grid, uth_bconds, ur_bconds, u);
-
-      // 2) Pressure calculation
+      // 3) Pressure calculation
       ALEPolar::calc_div(grid, u, div);
       grid.foreach_i(FOREACH_FUNC { div(i, j) *= rho / local_dt; });
       if (!solver.solve(dp, div, 1e-6 / local_dt)) {
@@ -168,8 +186,8 @@ auto main(int argc, char** argv) -> int {
       mg_cycles += solver.num_cycles();
       apply_bconds(grid, dp_bconds, dp, t);
 
-      // 3) Projection
-      ALEPolar::correct_velocity(grid, dp, rho, dt, u, p);
+      // 4) Projection
+      ALEPolar::correct_velocity(grid, dp, rho, local_dt, u, p);
     }
     ALEPolar::calc_div(grid, u, div);
     interpolate(grid, u, ui);
