@@ -11,6 +11,10 @@ constexpr void calc_viscous_temperature_src(const Grid<Float, LAYOUT>& grid,
                                             Float rho,
                                             Float cV,
                                             Scalar<Float, LAYOUT> src) {
+  if (grid.coords() == Coordinates::POLAR) {
+    Igor::Todo("Viscous temperature source is not implemented for polar coordinates.");
+  }
+
   // mu/(rho cV) * [nabla u : nabla u + (nabla u)^T : nabla u]
   grid.foreach_i(FOREACH_FUNC {
     const auto dudx = (u.right(i, j) - u.left(i, j)) / grid.dx();
