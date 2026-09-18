@@ -35,7 +35,7 @@ constexpr Float dt_write = tend / 100.0;
 // =================================================================================================
 constexpr auto s_analytical(Float x, Float y) -> Float {
   // return static_cast<Float>(Igor::sqr(x - 0.5) + Igor::sqr(y - 0.5) < Igor::sqr(0.25));
-  return std::sin(2.0 * pi * x) * std::sin(2.0 * pi * y);
+  return std::sin(2.0 * pi * x) * std::sin(2.0 * pi * y) + 1.0;
 }
 
 // =================================================================================================
@@ -84,10 +84,10 @@ auto main(int argc, char** argv) -> int {
   Float t    = 0.0;
 
   const BConds<Float> bconds{
-      .left   = Periodic{},
-      .right  = Periodic{},
-      .bottom = Periodic{},
-      .top    = Periodic{},
+      .left   = Periodic(),
+      .right  = Periodic(),
+      .bottom = Periodic(),
+      .top    = Periodic(),
   };
 
   grid.foreach_i(FOREACH_FUNC { s(i, j) = s_analytical(grid.xm(i), grid.ym(j)); });
@@ -102,13 +102,15 @@ auto main(int argc, char** argv) -> int {
   writer.add_field("s", s);
   if (!writer.write(t)) { return 1; }
 
-  Stats s_stats = stats(grid, s);
+  Stats s_stats     = stats(grid, s);
+  const auto s0_sum = s_stats.sum;
 
   Monitor<Float> monitor(output_dir + "/monitor.log");
   monitor.add_variable(&t, "t");
   monitor.add_variable(&dt, "dt");
   monitor.add_variable(&s_stats.min, "min(s)");
   monitor.add_variable(&s_stats.max, "max(s)");
+  monitor.add_variable(&s_stats.sum, "sum(s)");
   monitor.write();
 
   IGOR_TIME_SCOPE("Advection-Cartesian-" + std::to_string(N))
@@ -144,13 +146,24 @@ auto main(int argc, char** argv) -> int {
       },
       std::plus<>{});
 
+  bool any_failed = false;
+
   Igor::Info("L1({}) = {:.8e}", N, L1);
   Igor::Info("L1_exp({}) = {:.8e}", N, Expected::L1(N));
   if (L1 > 1.1 * Expected::L1(N)) {
     Igor::Error("s error does not match expected value: expected {:.8e} but got {:.8e}",
                 Expected::L1(N),
                 L1);
-    return 1;
+    any_failed = true;
   }
-  return 0;
+
+  Igor::Info("sum(s0) = {:.8e}", s0_sum);
+  Igor::Info("sum(s)  = {:.8e}", s_stats.sum);
+  if (std::abs(s_stats.sum - s0_sum) > 1e-12) {
+    Igor::Error(
+        "s is not conserved, expected sum(s)={:.8e} but got sum(s)={:.8e}", s0_sum, s_stats.sum);
+    any_failed = true;
+  }
+
+  return any_failed ? 1 : 0;
 }
